@@ -9,13 +9,32 @@ with a human decision.
 
 ## `stop_coverage` -- Unprotected position detected
 
-**What it means:** JD-Relay reports an open, tracked chunk with
-`entry_protective_failed=true` -- the entry filled but its protective stop
-either never got submitted successfully or JD-Relay's own retry
-(`_reattempt_missing_protection`) hasn't cleared it after two consecutive
-JD-Watch polls (~2 minutes). **Auto-action taken:** JD-Watch called
+**What it means:** one of two independent signals fired on an open,
+tracked chunk, confirmed across two consecutive JD-Watch polls (~2
+minutes):
+- `entry_protective_failed=true` -- the entry filled but its protective
+  stop never got submitted successfully, or JD-Relay's own retry
+  (`_reattempt_missing_protection`) hasn't cleared it.
+- `live_stop_status` is `canceled`/`cancelled`/`rejected`/`expired` -- the
+  stop was successfully placed at some point (so `entry_protective_failed`
+  never went True) but is no longer live at the broker, checked directly
+  via `broker.get_order()`. Only checked for chunks that have already been
+  through at least one stop-replace (breakeven move or trailing tighten) --
+  see the known limitation below.
+
+**Auto-action taken:** JD-Watch called
 `POST /control/halt?account=<account>&flatten=false` on the affected
 account only -- new entries are blocked, the position itself is untouched.
+
+**Known limitation:** a position still on its original, never-replaced
+entry bracket has no live re-verification at all (neither JD-Relay
+internally nor JD-Watch externally) -- if that stop leg gets canceled out
+of band before any stop-replace has ever happened, nothing currently
+detects it. This is a real, open gap (documented in JD-Relay's
+`PositionManager.tracked_chunks_snapshot()` docstring), not a JD-Watch
+bug -- closing it needs the same multi-leg order parsing
+`_process_routing_fills()` uses, which is a separate, larger piece of
+work.
 
 **Diagnosis:**
 1. Check JD-Relay's own logs for that `client_order_id` /

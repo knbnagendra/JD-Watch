@@ -5,6 +5,19 @@ reactive -- triggered only when a specific chunk's protective order dies.
 There was no standing, external check of the whole book that could catch
 that retry/notify path silently breaking on its own. This is that check.
 
+Two independent signals, checked as an OR (see GET /positions's
+tracked_chunks_snapshot() docstring in JD-Relay for the full reasoning):
+- `entry_protective_failed`: set once, at entry time, if the initial
+  protective-order submission failed. Never updated afterward.
+- `live_stop_status`: a live broker.get_order() status, but ONLY for
+  chunks that have already been through a stop-replace
+  (is_protective_oco=True) -- catches a stop that was successfully placed
+  and later externally canceled/expired, which entry_protective_failed can
+  never see. Always None for a never-yet-replaced original bracket chunk;
+  that scenario currently has no live re-verification anywhere in either
+  system (a documented, real, still-open gap, not a silent one -- see
+  JD-Relay's tracked_chunks_snapshot() docstring).
+
 Requires a violation to persist across CONFIRM_POLLS consecutive polls
 before firing, mirroring position_manager.py's own mismatch_grace_seconds
 pattern -- avoids false positives during the brief window of a legitimate
@@ -40,6 +53,7 @@ NAME = "stop_coverage"
 # philosophy (see JD-Signal's _detect_alert_repeats(), independent of each
 # product's own cooldown).
 _TERMINAL_STATUSES = {"closed", "flattened", "canceled", "cancelled", "rejected", "expired"}
+_TERMINAL_LIVE_STOP_STATUSES = {"canceled", "cancelled", "rejected", "expired"}
 
 # key -> consecutive-poll count. Module-level so it survives across engine
 # ticks within one process lifetime without threading state through ctx.
@@ -67,7 +81,11 @@ def run(ctx) -> None:
             for chunk in pos.get("chunks", []):
                 if chunk.get("status") in _TERMINAL_STATUSES:
                     continue
-                if not chunk.get("entry_protective_failed"):
+                unprotected = (
+                    chunk.get("entry_protective_failed")
+                    or chunk.get("live_stop_status") in _TERMINAL_LIVE_STOP_STATUSES
+                )
+                if not unprotected:
                     continue
                 key = f"{account}:{ticker}:{chunk['client_order_id']}"
                 seen_this_poll.add(key)
@@ -85,8 +103,12 @@ def run(ctx) -> None:
 
 def _fire(ctx, account: str, ticker: str, chunk: dict, key: str) -> None:
     incident = store.get_open_incident(ctx.db, NAME, account, key)
+    reason = (
+        "entry_protective_failed" if chunk.get("entry_protective_failed")
+        else f"live_stop_status={chunk.get('live_stop_status')}"
+    )
     detail = (
-        f"ticker={ticker} chunk={chunk['client_order_id']} "
+        f"ticker={ticker} chunk={chunk['client_order_id']} reason={reason} "
         f"broker_order_id={chunk.get('broker_order_id')} status={chunk.get('status')}"
     )
     if incident is not None:

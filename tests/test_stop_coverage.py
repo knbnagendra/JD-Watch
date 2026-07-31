@@ -6,7 +6,7 @@ from watch.severity import Severity
 
 
 def make_positions(account: str, ticker: str, chunk_id: str, *, entry_protective_failed: bool,
-                    status: str = "open") -> dict:
+                    status: str = "open", live_stop_status: str | None = None) -> dict:
     return {
         "accounts": {
             account: {
@@ -23,6 +23,7 @@ def make_positions(account: str, ticker: str, chunk_id: str, *, entry_protective
                                 "broker_order_id": "ord-1",
                                 "entry_protective_failed": entry_protective_failed,
                                 "is_protective_oco": False,
+                                "live_stop_status": live_stop_status,
                             }
                         ],
                     }
@@ -112,6 +113,45 @@ def test_positions_fetch_failure_does_not_raise(ctx):
 def test_terminal_status_chunk_never_flagged(ctx):
     ctx.relay.positions = make_positions(
         "sandbox", "AAPL", "c1", entry_protective_failed=True, status="closed",
+    )
+    for _ in range(5):
+        stop_coverage.run(ctx)
+    assert ctx.alerter.calls == []
+
+
+def test_live_stop_status_canceled_fires_even_when_entry_protective_failed_is_false(ctx):
+    """The actual gap fix: entry_protective_failed=False (protection
+    succeeded at entry) but the stop was later externally canceled --
+    entry_protective_failed alone would never catch this; live_stop_status
+    must."""
+    ctx.relay.positions = make_positions(
+        "sandbox", "AAPL", "c1", entry_protective_failed=False, live_stop_status="canceled",
+    )
+
+    stop_coverage.run(ctx)
+    stop_coverage.run(ctx)
+
+    assert ctx.relay.halt_calls == [("sandbox", False)]
+    assert len(ctx.alerter.calls) == 1
+    assert "live_stop_status=canceled" in ctx.alerter.calls[0].content
+
+
+def test_live_stop_status_resting_is_not_a_violation(ctx):
+    ctx.relay.positions = make_positions(
+        "sandbox", "AAPL", "c1", entry_protective_failed=False, live_stop_status="open",
+    )
+    for _ in range(5):
+        stop_coverage.run(ctx)
+    assert ctx.alerter.calls == []
+
+
+def test_live_stop_status_none_is_not_a_violation_on_its_own(ctx):
+    """None means "not checked" (e.g. never-yet-replaced bracket, or a
+    transient fetch failure) -- must not be treated as a violation by
+    itself; only entry_protective_failed or a genuinely terminal
+    live_stop_status should fire."""
+    ctx.relay.positions = make_positions(
+        "sandbox", "AAPL", "c1", entry_protective_failed=False, live_stop_status=None,
     )
     for _ in range(5):
         stop_coverage.run(ctx)
