@@ -22,7 +22,11 @@ from watch.severity import Severity
 log = logging.getLogger("watch.checks.flat_by_close")
 
 NAME = "flat_by_close"
-ACCOUNTS = ("sandbox", "live", "alpaca_sandbox", "alpaca_live")
+
+# Deliberately NOT a hardcoded account tuple -- see stop_coverage.py's
+# identical note. run() iterates whatever accounts GET /positions actually
+# returns, so a newly added account (e.g. schwab_live, 2026-07-30) is
+# covered automatically instead of silently unmonitored.
 
 
 def _realert_interval(ctx) -> float:
@@ -47,9 +51,9 @@ def run(ctx) -> None:
         return
 
     accounts_data = data.get("accounts", {})
-    for account in ACCOUNTS:
+    for account, account_data in accounts_data.items():
         violations = [
-            pos for pos in accounts_data.get(account, {}).get("positions", [])
+            pos for pos in account_data.get("positions", [])
             if pos.get("quantity", 0) != 0 and not pos.get("swing_eligible", False)
         ]
         key = account

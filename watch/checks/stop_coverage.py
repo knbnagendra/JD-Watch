@@ -24,7 +24,14 @@ from watch.severity import Severity
 log = logging.getLogger("watch.checks.stop_coverage")
 
 NAME = "stop_coverage"
-ACCOUNTS = ("sandbox", "live", "alpaca_sandbox", "alpaca_live")
+
+# Deliberately NOT a hardcoded account tuple -- run() iterates whatever
+# accounts GET /positions actually returns. A hardcoded list here already
+# went stale once in practice: config.yaml grew a 5th account (schwab_live,
+# added 2026-07-30 alongside live MOC-lotto autotrading) that a fixed tuple
+# would have silently left unmonitored. JD-Relay's own pipelines dict is
+# the single source of truth for which accounts exist; mirroring it here
+# would just be a second place for it to drift out of sync again.
 
 # JD-Relay's tracked_chunks_snapshot() already excludes these before they
 # reach GET /positions -- filtered here too, defensively, rather than
@@ -54,8 +61,8 @@ def run(ctx) -> None:
     confirm_polls = _confirm_polls(ctx)
     seen_this_poll: set[str] = set()
 
-    for account in ACCOUNTS:
-        for pos in accounts_data.get(account, {}).get("positions", []):
+    for account, account_data in accounts_data.items():
+        for pos in account_data.get("positions", []):
             ticker = pos["ticker"]
             for chunk in pos.get("chunks", []):
                 if chunk.get("status") in _TERMINAL_STATUSES:

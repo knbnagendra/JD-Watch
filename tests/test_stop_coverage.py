@@ -118,6 +118,23 @@ def test_terminal_status_chunk_never_flagged(ctx):
     assert ctx.alerter.calls == []
 
 
+def test_covers_an_account_not_in_any_hardcoded_list(ctx):
+    """Regression: an earlier version of this check iterated a fixed
+    ACCOUNTS tuple (sandbox/live/alpaca_sandbox/alpaca_live) instead of
+    whatever GET /positions actually returns -- config.yaml grew a 5th
+    account (schwab_live, added 2026-07-30 alongside live MOC-lotto
+    autotrading) that a fixed tuple would have silently left unmonitored.
+    Any account name JD-Relay reports must be covered, not just the ones
+    known when this code was written."""
+    ctx.relay.positions = make_positions("schwab_live", "SPY", "c1", entry_protective_failed=True)
+
+    stop_coverage.run(ctx)
+    stop_coverage.run(ctx)
+
+    assert ctx.relay.halt_calls == [("schwab_live", False)]
+    assert len(ctx.alerter.calls) == 1
+
+
 def test_multiple_accounts_tracked_independently(ctx):
     ctx.relay.positions = {
         "accounts": {

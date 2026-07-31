@@ -95,6 +95,17 @@ def test_resolved_after_becoming_flat(ctx, monkeypatch):
     assert store.get_open_incident(ctx.db, flat_by_close.NAME, "sandbox", "sandbox") is None
 
 
+def test_covers_an_account_not_in_any_hardcoded_list(ctx, monkeypatch):
+    """Regression: see test_stop_coverage.py's identical-purpose test --
+    this check must cover any account GET /positions reports (e.g.
+    schwab_live, added 2026-07-30), not a fixed set known at write time."""
+    ctx.relay.positions = make_positions("schwab_live", "SPY", 10, swing_eligible=False)
+    run_after_cutoff(ctx, monkeypatch)
+
+    assert ctx.relay.halt_calls == [("schwab_live", False)]
+    assert len(ctx.alerter.calls) == 1
+
+
 def test_positions_fetch_failure_does_not_raise(ctx, monkeypatch):
     ctx.relay.raise_on_positions = True
     run_after_cutoff(ctx, monkeypatch)  # must not raise
