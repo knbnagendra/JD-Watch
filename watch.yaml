@@ -1,0 +1,43 @@
+# JD-Watch per-check configuration. No magic numbers in code -- every
+# interval/threshold lives here. TODO(threshold) markers call out values
+# chosen without historical data to calibrate against; revisit once this
+# has run for a few weeks.
+
+stop_coverage:
+  poll_interval_seconds: 60
+  # TODO(threshold): number of consecutive polls before firing. 2 x 60s =
+  # 2min grace for a legitimate stop-replace in flight, chosen to loosely
+  # mirror JD-Relay's own position_manager.py mismatch_grace_seconds (45s)
+  # for reconciliation mismatches -- no dedicated stop-coverage history
+  # exists yet to calibrate a tighter/looser number from.
+  confirm_polls: 2
+
+flat_by_close:
+  # TODO(threshold): order_router.time_exit_et (15:55 ET, JD-Relay's own
+  # EOD sweep trigger) + 10min grace for that sweep to actually finish
+  # confirming fills before this check starts treating a still-open
+  # position as a violation rather than "sweep in progress."
+  check_time_et: "16:05"
+  realert_interval_seconds: 300
+
+killswitch_dryfire:
+  # TODO(threshold): well before RTH open and before options.zero_dte.
+  # no_new_entries_after_et (15:00 ET is for the entry cutoff, not
+  # relevant here) -- just needs to run once, quietly, pre-market.
+  run_time_et: "08:30"
+  poll_timeout_seconds: 10
+  # Informational only -- killswitch_dryfire.py hardcodes its target list
+  # in code (never reads this), specifically so a config typo here can
+  # never point the dry-fire test at a live account.
+  targets: [sandbox, alpaca_sandbox]
+
+ops_monitor_runner:
+  # TODO(threshold): 30min cadence during the trading day. No cadence
+  # currently exists at all (ops_monitor.py is manual-only today), so this
+  # is a starting guess, not a measured value.
+  interval_seconds_rth: 1800
+  timeout_seconds: 120
+
+alerting:
+  base_dedupe_window_seconds: 300
+  max_dedupe_window_seconds: 7200

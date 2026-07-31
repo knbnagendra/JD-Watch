@@ -1,0 +1,18 @@
+[Unit]
+Description=JD-Watch ops monitoring
+After=network-online.target jd-relay.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=knbnagendra_gmail_com
+WorkingDirectory=/home/knbnagendra_gmail_com/JD-Watch
+ExecStart=/home/knbnagendra_gmail_com/JD-Watch/venv/bin/python3 -m watch.main
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=jd-watch
+
+[Install]
+WantedBy=multi-user.target
