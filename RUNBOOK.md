@@ -25,6 +25,14 @@ minutes):
 **Auto-action taken:** JD-Watch called
 `POST /control/halt?account=<account>&flatten=false` on the affected
 account only -- new entries are blocked, the position itself is untouched.
+A position whose broker-reported quantity is already 0 is never flagged,
+regardless of chunk-level state -- confirmed live 2026-07-31 (sandbox
+smoke test): right after any flatten, quantity goes to 0 immediately but
+a chunk's own `status` field lags behind ("closed" arrives on the next
+reconcile cycle), while `live_stop_status` correctly shows `canceled`
+(closing a position cancels its resting protective legs) -- without this
+guard that transient window reads as a violation with nothing left to
+protect.
 
 **Known limitation:** a position still on its original, never-replaced
 entry bracket has no live re-verification at all (neither JD-Relay

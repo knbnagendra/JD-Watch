@@ -77,6 +77,18 @@ def run(ctx) -> None:
 
     for account, account_data in accounts_data.items():
         for pos in account_data.get("positions", []):
+            if pos.get("quantity", 0) == 0:
+                # Real false-positive found live 2026-07-31 sandbox smoke
+                # test: right after a flatten (kill-switch, EOD sweep, or a
+                # normal exit), quantity is already 0 at the broker but a
+                # chunk's own `status` field hasn't caught up to "closed"
+                # yet -- meanwhile live_stop_status correctly shows
+                # "canceled" (closing the position cancels the resting
+                # protective legs). Without this guard that transient
+                # window reads as "unprotected," even though there's
+                # nothing left to protect. flat_by_close.py already
+                # guards on quantity for the same reason.
+                continue
             ticker = pos["ticker"]
             for chunk in pos.get("chunks", []):
                 if chunk.get("status") in _TERMINAL_STATUSES:

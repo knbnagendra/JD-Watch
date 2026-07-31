@@ -6,14 +6,14 @@ from watch.severity import Severity
 
 
 def make_positions(account: str, ticker: str, chunk_id: str, *, entry_protective_failed: bool,
-                    status: str = "open", live_stop_status: str | None = None) -> dict:
+                    status: str = "open", live_stop_status: str | None = None, quantity: float = 10) -> dict:
     return {
         "accounts": {
             account: {
                 "positions": [
                     {
                         "ticker": ticker,
-                        "quantity": 10,
+                        "quantity": quantity,
                         "swing_eligible": False,
                         "chunks": [
                             {
@@ -156,6 +156,42 @@ def test_live_stop_status_none_is_not_a_violation_on_its_own(ctx):
     for _ in range(5):
         stop_coverage.run(ctx)
     assert ctx.alerter.calls == []
+
+
+def test_zero_quantity_position_never_flagged_even_with_canceled_stop(ctx):
+    """Regression, live sandbox smoke test 2026-07-31: right after a
+    flatten, quantity is already 0 at the broker but a chunk's own status
+    field hasn't caught up to "closed" yet, while live_stop_status
+    correctly shows "canceled" (closing a position cancels its resting
+    protective legs). Without this guard that transient window reads as
+    an unprotected position that needs a halt, even though there's
+    nothing left to protect."""
+    ctx.relay.positions = make_positions(
+        "sandbox", "SPY", "c1", entry_protective_failed=False,
+        live_stop_status="canceled", quantity=0,
+    )
+    for _ in range(5):
+        stop_coverage.run(ctx)
+    assert ctx.alerter.calls == []
+    assert ctx.relay.halt_calls == []
+
+
+def test_position_going_to_zero_quantity_auto_resolves_an_open_incident(ctx):
+    ctx.relay.positions = make_positions(
+        "sandbox", "SPY", "c1", entry_protective_failed=False, live_stop_status="canceled", quantity=10,
+    )
+    stop_coverage.run(ctx)
+    stop_coverage.run(ctx)  # confirmed, incident open, sandbox halted
+
+    ctx.relay.positions = make_positions(
+        "sandbox", "SPY", "c1", entry_protective_failed=False, live_stop_status="canceled", quantity=0,
+    )
+    stop_coverage.run(ctx)
+
+    severities = [c.severity for c in ctx.alerter.calls]
+    assert Severity.CRITICAL in severities
+    assert Severity.INFO in severities
+    assert store.get_open_incident(ctx.db, stop_coverage.NAME, "sandbox", "sandbox:SPY:c1") is None
 
 
 def test_covers_an_account_not_in_any_hardcoded_list(ctx):
