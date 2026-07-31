@@ -70,3 +70,46 @@ def test_record_check_result_does_not_raise(db):
     row = db.execute("SELECT * FROM check_results").fetchone()
     assert row["check_name"] == "check"
     assert row["severity"] == "INFO"
+
+
+def test_get_all_open_incidents_across_checks_and_accounts(db):
+    store.open_incident(db, "check_a", "sandbox", "AAPL", Severity.CRITICAL, "")
+    store.open_incident(db, "check_b", "live", "MSFT", Severity.CRITICAL, "")
+    closed_id = store.open_incident(db, "check_a", "sandbox", "TSLA", Severity.CRITICAL, "")
+    store.close_incident(db, closed_id)
+
+    rows = store.get_all_open_incidents(db)
+
+    assert {(r["check_name"], r["account"], r["key"]) for r in rows} == {
+        ("check_a", "sandbox", "AAPL"), ("check_b", "live", "MSFT"),
+    }
+
+
+def test_get_incidents_since_includes_closed_and_open(db):
+    from datetime import datetime, timedelta, timezone
+    id1 = store.open_incident(db, "check_a", "sandbox", "AAPL", Severity.CRITICAL, "")
+    store.close_incident(db, id1)
+    store.open_incident(db, "check_a", "sandbox", "MSFT", Severity.CRITICAL, "")
+
+    since = datetime.now(timezone.utc) - timedelta(hours=1)
+    rows = store.get_incidents_since(db, since)
+
+    assert {r["key"] for r in rows} == {"AAPL", "MSFT"}
+
+
+def test_get_incidents_since_excludes_older(db):
+    from datetime import datetime, timedelta, timezone
+    store.open_incident(db, "check_a", "sandbox", "AAPL", Severity.CRITICAL, "")
+
+    since = datetime.now(timezone.utc) + timedelta(hours=1)  # future -- nothing qualifies
+    rows = store.get_incidents_since(db, since)
+
+    assert rows == []
+
+
+def test_config_hash_roundtrip(db):
+    assert store.get_config_hash(db, "rules.yaml") is None
+    store.set_config_hash(db, "rules.yaml", "abc123")
+    assert store.get_config_hash(db, "rules.yaml") == "abc123"
+    store.set_config_hash(db, "rules.yaml", "def456")  # update, not insert-conflict
+    assert store.get_config_hash(db, "rules.yaml") == "def456"

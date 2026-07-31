@@ -34,7 +34,34 @@ Everything else in the original, broader ops-monitoring spec (data
 integrity, regime-behavior reporting, most of broker/account state,
 infra metrics) either already exists in one of the two repos or is mostly
 a reporting layer over data that already does -- deferred to a later phase
-once phase 1 has a live track record.
+once phase 1 had a live track record.
+
+## Phase 2: scheduled reports
+
+Phase 1 had no automated reporting -- every incident it raises is real-time
+(a Discord post the moment a check fires), but there was nothing that
+summarized the day, or told you "everything's fine" on a schedule. Phase 2
+adds exactly that, INFO-only, wiring together data that mostly already
+existed after phase 1 rather than adding new detection or auto-actions:
+
+1. **`premarket_report`** (08:45 ET) -- GO/NO-GO with every gate listed:
+   JD-Relay reachability, the prior kill-switch dry-fire result, disk/
+   memory headroom, and every account's halt state explicitly (never just
+   an implicit all-clear).
+2. **`mid_session_report`** (hourly, RTH only) -- open-incident status
+   matrix, current regime (read from JD-Signal's `trading_bot.db`,
+   read-only), today's blocked-trade counts by gate, degraded tickers.
+3. **`eod_report`** (16:15 ET) -- today's incident timeline, reconciliation/
+   halt state per account, config files changed since the last report.
+4. **`weekly_digest`** (Fridays, 16:20 ET) -- per-service restart counts,
+   incident counts by check type over the week.
+
+None of these can halt anything -- they're read-only summaries. The one
+new read path is `watch/jd_signal_db.py`, which opens JD-Signal's
+`trading_bot.db` read-only (`mode=ro`) for regime state and blocked-trade
+telemetry, the same "read the other repo's sqlite file directly instead of
+importing it as a package" pattern `relay_client.py` and JD-Signal's own
+`ops_monitor.py` already use.
 
 ## Architecture
 
@@ -49,11 +76,18 @@ watch/
   relay_client.py      thin HTTP client for JD-Relay's control surface
   alerting.py           Discord posting + exponential backoff dedupe
   market_hours.py        vendored from JD-Relay (stdlib only, decoupled)
+  jd_signal_db.py          read-only access to JD-Signal's trading_bot.db
   checks/
     stop_coverage.py
     flat_by_close.py
     killswitch_dryfire.py
     ops_monitor_runner.py
+  reports/
+    common.py            config-hash diffing, disk/mem headroom
+    premarket.py
+    mid_session.py
+    eod.py
+    weekly.py
 watch.yaml           every interval/threshold, no magic numbers in code
 ```
 
@@ -94,6 +128,11 @@ sudo systemctl enable --now jd-watch
    (either `interval_seconds=...` or `daily_at_et="HH:MM"`).
 3. Add its thresholds to `watch.yaml` under a section named after the
    check.
+
+Reports (`watch/reports/`) follow the identical `NAME` + `run(ctx)`
+contract -- the only difference is convention, not mechanism: a report
+always posts (`ctx.alerter.alert(..., Severity.INFO, force=True)`) rather
+than gating on a detected violation, and never calls `ctx.relay.halt()`.
 
 ## Testing
 

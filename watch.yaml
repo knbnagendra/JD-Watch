@@ -38,6 +38,32 @@ ops_monitor_runner:
   interval_seconds_rth: 1800
   timeout_seconds: 120
 
+premarket_report:
+  # TODO(threshold): after killswitch_dryfire (08:30) and a couple of
+  # ops_monitor_runner cycles have had a chance to run, still well before
+  # RTH open (09:30 ET).
+  run_time_et: "08:45"
+  # TODO(threshold): no historical headroom data yet -- starting guesses,
+  # not measured baselines. Revisit once this has run for a few weeks.
+  disk_headroom_min_pct: 15.0
+  mem_headroom_min_pct: 10.0
+
+mid_session_report:
+  # TODO(threshold): hourly during RTH. No existing cadence to anchor
+  # this to (this report is entirely new) -- a starting guess.
+  interval_seconds: 3600
+
+eod_report:
+  # TODO(threshold): flat_by_close's own check_time_et (16:05) + 10min so
+  # today's flat-by-close result is already known when this runs.
+  run_time_et: "16:15"
+
+weekly_digest:
+  # TODO(threshold): after eod_report, Friday only (see weekly.py's run()
+  # -- the day-of-week gate lives in code, not here, so a config edit
+  # can't accidentally make this fire on the wrong day).
+  run_time_et: "16:20"
+
 alerting:
   base_dedupe_window_seconds: 300
   max_dedupe_window_seconds: 7200

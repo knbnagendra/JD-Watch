@@ -158,3 +158,20 @@ health summaries right now, not that trading itself is unsafe.
 runs cleanly again; the next scheduled run auto-resolves the alert.
 
 **Resume:** N/A -- no account is ever halted by this check.
+
+---
+
+## `premarket_report` / `mid_session_report` / `eod_report` / `weekly_digest`
+
+**What these are:** scheduled, INFO-only Discord posts -- none of the four
+can halt anything or take any action. There is no remediation section for
+them because there is no incident to remediate; treat a missing scheduled
+post itself as the only actionable signal (check `journalctl -u jd-watch`
+for an exception in that report's `run()` -- each is wrapped by
+`engine.py`'s own per-check try/except, so one report's bug can't take
+down the scheduler or any other check).
+
+`premarket_report`'s "NO-GO" verdict is informational, not a gate that
+blocks trading by itself -- it's a signal to look closer (an open
+`killswitch_dryfire` incident, low disk/memory headroom, or JD-Relay being
+unreachable), not something that requires a resume command.

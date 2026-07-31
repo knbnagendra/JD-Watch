@@ -15,6 +15,7 @@ from watch.checks import flat_by_close, killswitch_dryfire, ops_monitor_runner, 
 from watch.config import WatchSettings, load_watch_yaml
 from watch.engine import CheckSpec, Engine
 from watch.relay_client import RelayClient
+from watch.reports import eod, mid_session, premarket, weekly
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("watch.main")
@@ -68,6 +69,30 @@ def build_checks(ctx: Context) -> list[CheckSpec]:
         CheckSpec(
             name=ops_monitor_runner.NAME, run_fn=ops_monitor_runner.run,
             interval_seconds=cfg.get("ops_monitor_runner", {}).get("interval_seconds_rth", 1800),
+        ),
+        CheckSpec(
+            name=premarket.NAME, run_fn=premarket.run,
+            daily_at_et=cfg.get(premarket.NAME, {}).get("run_time_et", "08:45"),
+        ),
+        CheckSpec(
+            name=mid_session.NAME, run_fn=mid_session.run,
+            # Interval, not daily_at: the report itself no-ops outside RTH
+            # (see mid_session.py's run()) -- needs to be invoked
+            # repeatedly through the session, not once.
+            interval_seconds=cfg.get(mid_session.NAME, {}).get("interval_seconds", 3600),
+        ),
+        CheckSpec(
+            name=eod.NAME, run_fn=eod.run,
+            daily_at_et=cfg.get(eod.NAME, {}).get("run_time_et", "16:15"),
+        ),
+        CheckSpec(
+            name=weekly.NAME, run_fn=weekly.run,
+            # daily_at_et, same as premarket/eod: CheckSpec's once-per-ET-
+            # date semantics already give "runs once, after this time, each
+            # day it's due" -- weekly.py's own internal Friday gate (see its
+            # run()) turns that into "once per week" without needing new
+            # scheduling machinery.
+            daily_at_et=cfg.get(weekly.NAME, {}).get("run_time_et", "16:20"),
         ),
     ]
 

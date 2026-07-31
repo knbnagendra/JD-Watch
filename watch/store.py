@@ -47,6 +47,17 @@ CREATE TABLE IF NOT EXISTS incidents (
 );
 
 CREATE INDEX IF NOT EXISTS idx_incidents_lookup ON incidents(check_name, account, key);
+CREATE INDEX IF NOT EXISTS idx_incidents_opened_at ON incidents(opened_at);
+
+-- One row per watched config file (rules.yaml, universe.yaml, config.yaml)
+-- -- the pre-market/EOD reports diff against this to flag an unreviewed
+-- change since the last report, not to validate/reload anything itself
+-- (that stays entirely JD-Signal/JD-Relay's own job).
+CREATE TABLE IF NOT EXISTS config_state (
+    path TEXT PRIMARY KEY,
+    sha256 TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL
+);
 """
 
 
@@ -122,3 +133,31 @@ def should_realert(conn: sqlite3.Connection, incident_id: int, realert_interval_
         return True
     last = datetime.fromisoformat(row["last_alerted_at"])
     return (datetime.now(timezone.utc) - last).total_seconds() >= realert_interval_seconds
+
+
+def get_all_open_incidents(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    """Every currently-open incident across every check/account -- the
+    mid-session snapshot's status matrix."""
+    return conn.execute("SELECT * FROM incidents WHERE closed_at IS NULL ORDER BY opened_at").fetchall()
+
+
+def get_incidents_since(conn: sqlite3.Connection, since: datetime) -> list[sqlite3.Row]:
+    """Every incident (open or already closed) opened at/after `since` --
+    the EOD/weekly reports' timeline."""
+    return conn.execute(
+        "SELECT * FROM incidents WHERE opened_at >= ? ORDER BY opened_at", (since.isoformat(),),
+    ).fetchall()
+
+
+def get_config_hash(conn: sqlite3.Connection, path: str) -> str | None:
+    row = conn.execute("SELECT sha256 FROM config_state WHERE path = ?", (path,)).fetchone()
+    return row["sha256"] if row else None
+
+
+def set_config_hash(conn: sqlite3.Connection, path: str, sha256: str) -> None:
+    conn.execute(
+        "INSERT INTO config_state (path, sha256, last_seen_at) VALUES (?, ?, ?) "
+        "ON CONFLICT(path) DO UPDATE SET sha256 = excluded.sha256, last_seen_at = excluded.last_seen_at",
+        (path, sha256, _now_iso()),
+    )
+    conn.commit()
