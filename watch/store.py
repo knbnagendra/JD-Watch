@@ -51,7 +51,17 @@ CREATE INDEX IF NOT EXISTS idx_incidents_lookup ON incidents(check_name, account
 
 
 def connect(path: str | Path) -> sqlite3.Connection:
-    conn = sqlite3.connect(str(path))
+    # check_same_thread=False: engine.py runs each check via
+    # asyncio.to_thread(), which the default executor may hand to a
+    # different worker thread on each tick -- confirmed live 2026-07-31,
+    # first production deploy: sqlite3.ProgrammingError on the very first
+    # tick since this connection is built once in main()'s startup thread.
+    # Safe to disable sqlite3's own same-thread guard here specifically
+    # because Engine.tick() awaits each check sequentially (a plain for
+    # loop, not asyncio.gather) -- exactly one check's run_fn ever touches
+    # this connection at a time, so there's no real concurrent-access race
+    # for the guard to have been protecting against.
+    conn = sqlite3.connect(str(path), check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.executescript(_SCHEMA)
     conn.commit()
