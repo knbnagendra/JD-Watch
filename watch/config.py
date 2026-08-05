@@ -36,6 +36,12 @@ class WatchSettings(BaseSettings):
     jd_signal_repo_path: str = ""
     jd_signal_python: str = ""
 
+    # Same pattern, JD-Relay side -- daily_trade_report.py invokes
+    # JD-Relay's own trade_report.py as a subprocess (its own venv/deps,
+    # not JD-Watch's).
+    jd_relay_repo_path: str = ""
+    jd_relay_python: str = ""
+
     store_path: str = "jd_watch.db"
     watch_config_path: str = "watch.yaml"
 

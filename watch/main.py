@@ -15,7 +15,7 @@ from watch.checks import flat_by_close, killswitch_dryfire, ops_monitor_runner, 
 from watch.config import WatchSettings, load_watch_yaml
 from watch.engine import CheckSpec, Engine
 from watch.relay_client import RelayClient
-from watch.reports import eod, mid_session, premarket, weekly
+from watch.reports import daily_trade_report, eod, mid_session, premarket, weekly
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("watch.main")
@@ -84,6 +84,13 @@ def build_checks(ctx: Context) -> list[CheckSpec]:
         CheckSpec(
             name=eod.NAME, run_fn=eod.run,
             daily_at_et=cfg.get(eod.NAME, {}).get("run_time_et", "16:15"),
+        ),
+        CheckSpec(
+            name=daily_trade_report.NAME, run_fn=daily_trade_report.run,
+            # Right after eod_report -- incident/reconciliation summary
+            # first, then the P&L breakdown, matching the natural reading
+            # order of "what happened, then what did it cost."
+            daily_at_et=cfg.get(daily_trade_report.NAME, {}).get("run_time_et", "16:16"),
         ),
         CheckSpec(
             name=weekly.NAME, run_fn=weekly.run,

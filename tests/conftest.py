@@ -105,6 +105,8 @@ class FakeAlerter:
 class FakeSettings:
     jd_signal_repo_path: str = ""
     jd_signal_python: str = ""
+    jd_relay_repo_path: str = ""
+    jd_relay_python: str = ""
 
 
 @dataclass
