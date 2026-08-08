@@ -19,7 +19,7 @@ from watch.severity import Severity
 log = logging.getLogger("watch.checks.killswitch_dryfire")
 
 NAME = "killswitch_dryfire"
-TARGETS = ("sandbox", "alpaca_sandbox")  # hardcoded -- see module docstring
+TARGETS = ("tradier_sandbox", "alpaca_sandbox")  # hardcoded -- see module docstring
 
 
 def _poll_timeout(ctx) -> float:

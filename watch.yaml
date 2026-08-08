@@ -29,7 +29,7 @@ killswitch_dryfire:
   # Informational only -- killswitch_dryfire.py hardcodes its target list
   # in code (never reads this), specifically so a config typo here can
   # never point the dry-fire test at a live account.
-  targets: [sandbox, alpaca_sandbox]
+  targets: [tradier_sandbox, alpaca_sandbox]
 
 ops_monitor_runner:
   # TODO(threshold): 30min cadence during the trading day. No cadence

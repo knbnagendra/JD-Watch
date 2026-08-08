@@ -52,8 +52,8 @@ def test_relay_unreachable_is_nogo(ctx, monkeypatch):
 def test_open_dryfire_incident_is_nogo(ctx, monkeypatch):
     ctx.relay.get_status = lambda: healthy_status()
     from watch import store
-    key = f"{killswitch_dryfire.NAME}:sandbox"
-    store.open_incident(ctx.db, killswitch_dryfire.NAME, "sandbox", key, Severity.CRITICAL, "dry-fire failed")
+    key = f"{killswitch_dryfire.NAME}:tradier_sandbox"
+    store.open_incident(ctx.db, killswitch_dryfire.NAME, "tradier_sandbox", key, Severity.CRITICAL, "dry-fire failed")
 
     run_at(ctx, monkeypatch)
 
