@@ -58,6 +58,21 @@ CREATE TABLE IF NOT EXISTS config_state (
     sha256 TEXT NOT NULL,
     last_seen_at TEXT NOT NULL
 );
+
+-- One row per weekly trade-validation cycle (see reports/trade_validation.py)
+-- -- append-only, so "N consecutive clean weeks" is derived from real
+-- history, not a counter that could silently drift from what actually
+-- happened. `clean` = zero approximate exits AND zero new CRITICAL
+-- incidents that week; `streak_after` is the consecutive-clean-week count
+-- as of this row (0 the moment any week isn't clean).
+CREATE TABLE IF NOT EXISTS validation_weeks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    week_ending TEXT NOT NULL,
+    recorded_at TEXT NOT NULL,
+    clean INTEGER NOT NULL,
+    streak_after INTEGER NOT NULL,
+    detail TEXT NOT NULL DEFAULT ''
+);
 """
 
 
@@ -161,3 +176,22 @@ def set_config_hash(conn: sqlite3.Connection, path: str, sha256: str) -> None:
         (path, sha256, _now_iso()),
     )
     conn.commit()
+
+
+def get_validation_streak(conn: sqlite3.Connection) -> int:
+    row = conn.execute("SELECT streak_after FROM validation_weeks ORDER BY id DESC LIMIT 1").fetchone()
+    return row["streak_after"] if row else 0
+
+
+def record_validation_week(conn: sqlite3.Connection, week_ending: str, clean: bool, detail: str = "") -> int:
+    """Appends this week's result and returns the new streak. Never
+    updates a prior row -- the whole point is a real, append-only history
+    a "N consecutive clean weeks" claim can point back to."""
+    streak = (get_validation_streak(conn) + 1) if clean else 0
+    conn.execute(
+        "INSERT INTO validation_weeks (week_ending, recorded_at, clean, streak_after, detail) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (week_ending, _now_iso(), 1 if clean else 0, streak, detail),
+    )
+    conn.commit()
+    return streak

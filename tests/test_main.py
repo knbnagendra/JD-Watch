@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from watch.checks import flat_by_close, killswitch_dryfire, ops_monitor_runner, stop_coverage
 from watch.main import build_checks
-from watch.reports import daily_trade_report, eod, mid_session, premarket, weekly
+from watch.reports import daily_trade_report, eod, mid_session, premarket, trade_validation, weekly
 
 
 @dataclass
@@ -16,13 +16,13 @@ def _by_name(checks, name):
     return next(c for c in checks if c.name == name)
 
 
-def test_build_checks_registers_all_eight_checks():
+def test_build_checks_registers_all_ten_checks():
     checks = build_checks(_FakeCtx(watch_cfg={}))
     names = {c.name for c in checks}
     assert names == {
         stop_coverage.NAME, flat_by_close.NAME, killswitch_dryfire.NAME,
         ops_monitor_runner.NAME, premarket.NAME, mid_session.NAME,
-        eod.NAME, daily_trade_report.NAME, weekly.NAME,
+        eod.NAME, daily_trade_report.NAME, weekly.NAME, trade_validation.NAME,
     }
 
 
@@ -38,6 +38,7 @@ def test_build_checks_uses_documented_defaults_when_watch_cfg_empty():
     assert _by_name(checks, eod.NAME).daily_at_et == "16:15"
     assert _by_name(checks, daily_trade_report.NAME).daily_at_et == "16:16"
     assert _by_name(checks, weekly.NAME).daily_at_et == "16:20"
+    assert _by_name(checks, trade_validation.NAME).daily_at_et == "16:25"
 
 
 def test_build_checks_honors_watch_cfg_overrides():
@@ -51,6 +52,7 @@ def test_build_checks_honors_watch_cfg_overrides():
         eod.NAME: {"run_time_et": "16:05"},
         daily_trade_report.NAME: {"run_time_et": "16:10"},
         weekly.NAME: {"run_time_et": "17:00"},
+        trade_validation.NAME: {"run_time_et": "17:05"},
     }
     checks = build_checks(_FakeCtx(watch_cfg=cfg))
 
@@ -63,3 +65,4 @@ def test_build_checks_honors_watch_cfg_overrides():
     assert _by_name(checks, eod.NAME).daily_at_et == "16:05"
     assert _by_name(checks, daily_trade_report.NAME).daily_at_et == "16:10"
     assert _by_name(checks, weekly.NAME).daily_at_et == "17:00"
+    assert _by_name(checks, trade_validation.NAME).daily_at_et == "17:05"

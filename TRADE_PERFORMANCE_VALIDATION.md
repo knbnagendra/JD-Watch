@@ -118,7 +118,27 @@ JD-Relay itself writes to on every fill, not a separate analytics copy.
 
 ## Next scheduled check
 
-<!-- Update this line each time a new snapshot is appended above. -->
-**Due:** TBD -- cadence and mechanism (manual re-run vs. an automated
-JD-Watch report) not yet decided, see project memory /
-`project_jd_watch_ops_monitoring_2026_07_30.md` for context once decided.
+<!-- New dated sections are inserted automatically directly above this
+heading -- watch/reports/trade_validation.py appends here every Friday
+16:25 ET, right after weekly_digest. Do not remove this heading; the
+report's insertion logic depends on it being present verbatim. -->
+
+**Automated as of 2026-08-08** (JD-Watch's `trade_validation` report):
+every Friday, pulls the trailing 7 days via `trade_report.py
+--validation-summary`, appends a new dated section above, posts the same
+content to Discord, and records that week's clean/dirty verdict (zero
+approximate exits + zero new CRITICAL incidents = clean) to
+`validation_weeks` in JD-Watch's own store -- the running "N consecutive
+clean weeks" streak that answers "is this ready to show anyone yet" is
+derived from that history, not asserted. See
+`project_jd_watch_ops_monitoring_2026_07_30.md` for the readiness bar this
+is measured against (~30-50 closed trades/product on each live account,
+and several consecutive clean weeks).
+
+The automation appends to this file locally on the VM but does **not**
+commit/push those changes to git on its own -- syncing new sections back
+into this repo's actual history is a periodic, reviewed action (done
+during a session, not unattended). If you're reading this in the repo and
+it looks stale, check the live file on the VM
+(`~/JD-Watch/TRADE_PERFORMANCE_VALIDATION.md`) or the `validation_weeks`
+table in `jd_watch.db` for the current streak.

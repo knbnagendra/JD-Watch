@@ -15,7 +15,7 @@ from watch.checks import flat_by_close, killswitch_dryfire, ops_monitor_runner, 
 from watch.config import WatchSettings, load_watch_yaml
 from watch.engine import CheckSpec, Engine
 from watch.relay_client import RelayClient
-from watch.reports import daily_trade_report, eod, mid_session, premarket, weekly
+from watch.reports import daily_trade_report, eod, mid_session, premarket, trade_validation, weekly
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("watch.main")
@@ -100,6 +100,12 @@ def build_checks(ctx: Context) -> list[CheckSpec]:
             # run()) turns that into "once per week" without needing new
             # scheduling machinery.
             daily_at_et=cfg.get(weekly.NAME, {}).get("run_time_et", "16:20"),
+        ),
+        CheckSpec(
+            name=trade_validation.NAME, run_fn=trade_validation.run,
+            # Right after weekly_digest, same daily_at_et + internal-Friday-
+            # gate pattern -- see trade_validation.py's own run() docstring.
+            daily_at_et=cfg.get(trade_validation.NAME, {}).get("run_time_et", "16:25"),
         ),
     ]
 

@@ -175,3 +175,34 @@ down the scheduler or any other check).
 blocks trading by itself -- it's a signal to look closer (an open
 `killswitch_dryfire` incident, low disk/memory headroom, or JD-Relay being
 unreachable), not something that requires a resume command.
+
+---
+
+## `trade_validation`
+
+**What this is:** the same kind of INFO-only, no-action scheduled post as
+the four above, plus one side effect: it appends a new dated section to
+`TRADE_PERFORMANCE_VALIDATION.md` (local to the VM, not auto-committed to
+git) and records that week's clean/dirty verdict to JD-Watch's own store.
+
+**"doc file not found locally" in the alert:** the report still posts to
+Discord either way, but nothing got appended to the `.md` file. Means
+`TRADE_PERFORMANCE_VALIDATION.md` doesn't exist at the configured
+`doc_path` on the VM (check it was actually deployed/cloned there) or its
+`## Next scheduled check` heading was edited/removed -- the insertion
+logic depends on that exact heading being present. Fix: restore the
+heading (or the file) from the repo, no restart needed, it'll pick up
+correctly next Friday.
+
+**"trade_report.py exited non-zero" / timeout / failed to launch:** same
+diagnosis as `ops_monitor_runner`/`daily_trade_report` -- try running
+`venv/bin/python3 trade_report.py --validation-summary --since <7-days-ago-ISO>`
+by hand in the JD-Relay repo and read the real traceback.
+
+**Interpreting "NOT CLEAN":** this is not itself an incident -- it means
+either a new CRITICAL JD-Watch incident opened that week, or at least one
+trade closed with an approximate (not broker-confirmed) exit price that
+week. Check the appended section's own numbers (`n/n approx exits`) to see
+which account/product it came from, then treat it the same as any other
+data-quality finding: worth understanding before trusting that week's
+numbers, not something to auto-resolve.

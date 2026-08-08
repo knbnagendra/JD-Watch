@@ -113,3 +113,34 @@ def test_config_hash_roundtrip(db):
     assert store.get_config_hash(db, "rules.yaml") == "abc123"
     store.set_config_hash(db, "rules.yaml", "def456")  # update, not insert-conflict
     assert store.get_config_hash(db, "rules.yaml") == "def456"
+
+
+def test_validation_streak_zero_when_nothing_recorded(db):
+    assert store.get_validation_streak(db) == 0
+
+
+def test_validation_streak_increments_on_consecutive_clean_weeks(db):
+    assert store.record_validation_week(db, "2026-08-08", clean=True) == 1
+    assert store.record_validation_week(db, "2026-08-15", clean=True) == 2
+    assert store.record_validation_week(db, "2026-08-22", clean=True) == 3
+    assert store.get_validation_streak(db) == 3
+
+
+def test_validation_streak_resets_on_a_dirty_week(db):
+    store.record_validation_week(db, "2026-08-08", clean=True)
+    store.record_validation_week(db, "2026-08-15", clean=True)
+    assert store.record_validation_week(db, "2026-08-22", clean=False) == 0
+    assert store.get_validation_streak(db) == 0
+    # A clean week right after resumes counting from 1, not from the old streak.
+    assert store.record_validation_week(db, "2026-08-29", clean=True) == 1
+
+
+def test_validation_weeks_history_is_append_only(db):
+    store.record_validation_week(db, "2026-08-08", clean=True, detail="0 approx, 0 incidents")
+    store.record_validation_week(db, "2026-08-15", clean=False, detail="2 approx exits found")
+    rows = db.execute("SELECT week_ending, clean, streak_after, detail FROM validation_weeks ORDER BY id").fetchall()
+    assert len(rows) == 2
+    assert rows[0]["week_ending"] == "2026-08-08"
+    assert rows[0]["clean"] == 1
+    assert rows[1]["clean"] == 0
+    assert rows[1]["detail"] == "2 approx exits found"

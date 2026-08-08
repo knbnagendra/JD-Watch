@@ -55,6 +55,16 @@ existed after phase 1 rather than adding new detection or auto-actions:
    halt state per account, config files changed since the last report.
 4. **`weekly_digest`** (Fridays, 16:20 ET) -- per-service restart counts,
    incident counts by check type over the week.
+5. **`daily_trade_report`** (16:16 ET) -- shells out to JD-Relay's own
+   `trade_report.py`, posts its account-kind-then-broker grouped
+   closed-trade summary.
+6. **`trade_validation`** (Fridays, 16:25 ET) -- per-product win-rate/
+   approximate-exit-rate breakdown over the trailing week (via
+   `trade_report.py --validation-summary`), appended to
+   `TRADE_PERFORMANCE_VALIDATION.md` and tracked as a persisted
+   "consecutive clean weeks" streak -- see that doc for what "clean" means
+   and why it exists (short version: it's what caught the Alpaca
+   fill-price bug, 2026-08-08).
 
 None of these can halt anything -- they're read-only summaries. The one
 new read path is `watch/jd_signal_db.py`, which opens JD-Signal's
