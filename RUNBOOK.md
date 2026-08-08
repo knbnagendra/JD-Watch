@@ -182,17 +182,36 @@ unreachable), not something that requires a resume command.
 
 **What this is:** the same kind of INFO-only, no-action scheduled post as
 the four above, plus one side effect: it appends a new dated section to
-`TRADE_PERFORMANCE_VALIDATION.md` (local to the VM, not auto-committed to
-git) and records that week's clean/dirty verdict to JD-Watch's own store.
+`TRADE_PERFORMANCE_VALIDATION.md`, commits and pushes just that file
+(`git add`/`commit`/`push`, scoped to the doc path only), and records that
+week's clean/dirty verdict to JD-Watch's own store. Push uses a dedicated
+deploy key (`~/.ssh/deploy_jdwatch` on the VM, registered on GitHub with
+write access, aliased as `github-jdwatch` in the VM's `~/.ssh/config`;
+`origin` on the VM's clone points at that alias, not plain HTTPS) and a
+repo-local git identity (`JD-Watch Automation
+<jd-watch-automation@users.noreply.github.com>`), both set once during
+setup, not per-run.
 
 **"doc file not found locally" in the alert:** the report still posts to
-Discord either way, but nothing got appended to the `.md` file. Means
-`TRADE_PERFORMANCE_VALIDATION.md` doesn't exist at the configured
-`doc_path` on the VM (check it was actually deployed/cloned there) or its
-`## Next scheduled check` heading was edited/removed -- the insertion
-logic depends on that exact heading being present. Fix: restore the
-heading (or the file) from the repo, no restart needed, it'll pick up
-correctly next Friday.
+Discord either way, but nothing got appended to the `.md` file (and
+nothing was committed). Means `TRADE_PERFORMANCE_VALIDATION.md` doesn't
+exist at the configured `doc_path` on the VM (check it was actually
+deployed/cloned there) or its `## Next scheduled check` heading was
+edited/removed -- the insertion logic depends on that exact heading being
+present. Fix: restore the heading (or the file) from the repo, no restart
+needed, it'll pick up correctly next Friday.
+
+**"appended locally, but git commit/push failed" in the alert:** the doc
+was updated on the VM's disk (so the Discord post and the file content are
+still accurate) but the commit or push itself failed -- the alert includes
+the failing git subcommand and a stderr tail. Common causes: the VM's
+`github-jdwatch` SSH key stopped being accepted (deploy key removed/
+rotated on GitHub -- check `Settings -> Deploy keys` on the JD-Watch repo),
+a network blip, or a merge conflict if the file was also edited directly
+in the repo since the VM's clone last pulled (`git -C ~/JD-Watch pull
+--ff-only` on the VM to resync, then it'll catch up next Friday). This
+never blocks the Discord post or the local file update -- only the git
+sync step.
 
 **"trade_report.py exited non-zero" / timeout / failed to launch:** same
 diagnosis as `ops_monitor_runner`/`daily_trade_report` -- try running

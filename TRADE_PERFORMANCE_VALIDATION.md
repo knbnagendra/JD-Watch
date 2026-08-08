@@ -135,10 +135,13 @@ derived from that history, not asserted. See
 is measured against (~30-50 closed trades/product on each live account,
 and several consecutive clean weeks).
 
-The automation appends to this file locally on the VM but does **not**
-commit/push those changes to git on its own -- syncing new sections back
-into this repo's actual history is a periodic, reviewed action (done
-during a session, not unattended). If you're reading this in the repo and
-it looks stale, check the live file on the VM
-(`~/JD-Watch/TRADE_PERFORMANCE_VALIDATION.md`) or the `validation_weeks`
-table in `jd_watch.db` for the current streak.
+The automation appends to this file locally on the VM, then commits and
+pushes just this one file (`git add`/`commit`/`push`, scoped to this path
+only) so the new section lands in this repo's real git history
+unattended, via a dedicated deploy key on the VM
+(`~/.ssh/deploy_jdwatch`, registered on GitHub with write access,
+`origin` on the VM aliased to it as `github-jdwatch`). If a push ever
+fails (network blip, deploy key rotated/revoked), the Discord post for
+that week says so explicitly and the local file on the VM stays the
+source of truth until the next successful run reconciles it -- see
+`RUNBOOK.md`'s `trade_validation` section.

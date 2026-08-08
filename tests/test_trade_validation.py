@@ -31,6 +31,26 @@ def _mock_subprocess(monkeypatch, md_content: str, json_entries: list[dict], ret
     monkeypatch.setattr(subprocess, "run", fake_run)
 
 
+def _mock_subprocess_with_git(monkeypatch, md_content: str, json_entries: list[dict], git_log: list,
+                               *, has_changes: bool = True, git_fail_on: str | None = None):
+    """Like _mock_subprocess but also simulates the git add/commit/push
+    sequence: `git diff --quiet` reports whether there are changes to
+    commit, and `git_fail_on` (e.g. "push") makes that one git subcommand
+    raise as if `check=True` caught a non-zero exit."""
+    def fake_run(args, cwd=None, timeout=None, capture_output=None, text=None, check=None):
+        if args[0] == "git":
+            git_log.append(list(args))
+            if args[1] == "diff":
+                return subprocess.CompletedProcess(args=args, returncode=0 if not has_changes else 1)
+            if git_fail_on and args[1] == git_fail_on:
+                raise subprocess.CalledProcessError(1, args, output="", stderr="simulated git failure")
+            return subprocess.CompletedProcess(args=args, returncode=0, stdout="", stderr="")
+        if "--json" in args:
+            return subprocess.CompletedProcess(args=args, returncode=0, stdout=json.dumps(json_entries), stderr="")
+        return subprocess.CompletedProcess(args=args, returncode=0, stdout=md_content, stderr="")
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+
 def test_noop_on_non_friday(ctx, monkeypatch):
     _configure(ctx)
     run_at(ctx, monkeypatch, date=(2026, 7, 30))  # Thursday
@@ -206,6 +226,78 @@ def test_week_with_new_critical_incident_is_not_clean(ctx, monkeypatch, tmp_path
     run_at(ctx, monkeypatch)
 
     assert "This week: NOT CLEAN" in ctx.alerter.calls[0].content
+
+
+def test_successful_append_commits_and_pushes_just_the_doc(ctx, monkeypatch, tmp_path):
+    _configure(ctx)
+    doc = tmp_path / "doc.md"
+    doc.write_text("## Next scheduled check\n")
+    ctx.watch_cfg = {"trade_validation": {"doc_path": str(doc)}}
+    git_log = []
+    _mock_subprocess_with_git(monkeypatch, "md content", [], git_log)
+
+    run_at(ctx, monkeypatch)
+
+    commands = [entry[1] for entry in git_log]
+    assert commands == ["diff", "add", "commit", "push"]
+    assert str(doc) in git_log[1]  # git add scoped to just this file
+    assert "failed" not in ctx.alerter.calls[0].content
+
+
+def test_no_doc_changes_skips_commit_and_push(ctx, monkeypatch, tmp_path):
+    _configure(ctx)
+    doc = tmp_path / "doc.md"
+    doc.write_text("## Next scheduled check\n")
+    ctx.watch_cfg = {"trade_validation": {"doc_path": str(doc)}}
+    git_log = []
+    _mock_subprocess_with_git(monkeypatch, "md content", [], git_log, has_changes=False)
+
+    run_at(ctx, monkeypatch)
+
+    commands = [entry[1] for entry in git_log]
+    assert commands == ["diff"]  # nothing further attempted
+    assert "failed" not in ctx.alerter.calls[0].content
+
+
+def test_git_push_failure_notes_it_but_still_posts(ctx, monkeypatch, tmp_path):
+    _configure(ctx)
+    doc = tmp_path / "doc.md"
+    doc.write_text("## Next scheduled check\n")
+    ctx.watch_cfg = {"trade_validation": {"doc_path": str(doc)}}
+    git_log = []
+    _mock_subprocess_with_git(monkeypatch, "md content", [], git_log, git_fail_on="push")
+
+    run_at(ctx, monkeypatch)
+
+    assert len(ctx.alerter.calls) == 1
+    assert ctx.alerter.calls[0].severity == Severity.INFO  # still posts, doesn't escalate severity
+    assert "git commit/push failed" in ctx.alerter.calls[0].content
+    assert "simulated git failure" in ctx.alerter.calls[0].content
+    # doc was still appended locally despite the git failure
+    assert "## 2026-07-31" in doc.read_text()
+
+
+def test_git_commit_timeout_notes_it_but_still_posts(ctx, monkeypatch, tmp_path):
+    _configure(ctx)
+    doc = tmp_path / "doc.md"
+    doc.write_text("## Next scheduled check\n")
+    ctx.watch_cfg = {"trade_validation": {"doc_path": str(doc)}}
+
+    def fake_run(args, cwd=None, timeout=None, capture_output=None, text=None, check=None):
+        if args[0] == "git":
+            if args[1] == "diff":
+                return subprocess.CompletedProcess(args=args, returncode=1)
+            raise subprocess.TimeoutExpired(cmd=args, timeout=timeout)
+        if "--json" in args:
+            return subprocess.CompletedProcess(args=args, returncode=0, stdout="[]", stderr="")
+        return subprocess.CompletedProcess(args=args, returncode=0, stdout="md content", stderr="")
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    run_at(ctx, monkeypatch)
+
+    assert len(ctx.alerter.calls) == 1
+    assert "git commit/push failed" in ctx.alerter.calls[0].content
+    assert "timed out" in ctx.alerter.calls[0].content
 
 
 def test_malformed_json_degrades_gracefully(ctx, monkeypatch, tmp_path):

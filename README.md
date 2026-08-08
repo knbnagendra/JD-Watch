@@ -61,10 +61,11 @@ existed after phase 1 rather than adding new detection or auto-actions:
 6. **`trade_validation`** (Fridays, 16:25 ET) -- per-product win-rate/
    approximate-exit-rate breakdown over the trailing week (via
    `trade_report.py --validation-summary`), appended to
-   `TRADE_PERFORMANCE_VALIDATION.md` and tracked as a persisted
-   "consecutive clean weeks" streak -- see that doc for what "clean" means
-   and why it exists (short version: it's what caught the Alpaca
-   fill-price bug, 2026-08-08).
+   `TRADE_PERFORMANCE_VALIDATION.md` (committed and pushed automatically,
+   scoped to just that file) and tracked as a persisted "consecutive clean
+   weeks" streak -- see that doc for what "clean" means and why it exists
+   (short version: it's what caught the Alpaca fill-price bug,
+   2026-08-08).
 
 None of these can halt anything -- they're read-only summaries. The one
 new read path is `watch/jd_signal_db.py`, which opens JD-Signal's

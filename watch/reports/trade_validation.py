@@ -15,13 +15,16 @@ data trustworthy enough to show anyone" stops being a judgment call:
    fill-price bug, 2026-08-08) and zero new CRITICAL JD-Watch incidents
    opened that week.
 
-Deliberately does NOT commit/push the updated doc to git -- an autonomous
-process silently mutating a git-tracked source file's history every week,
-unattended, is a bigger step than this report needs to take. The file is
-appended locally so it's visible on the VM and in the Discord post
-immediately; syncing that into the repo's actual git history is a
-periodic, reviewed action (a future session, or the user), not something
-this report does on its own.
+After a successful append, also commits and pushes just that one file
+(`git add`/`commit`/`push`, scoped to the doc path only -- never `git add
+-A`) so the weekly section lands in the repo's real git history
+unattended, not just on the VM's local disk. The VM's `origin` remote is a
+dedicated deploy key (`~/.ssh/deploy_jdwatch`, registered on GitHub with
+write access, aliased as `github-jdwatch` in `~/.ssh/config`) scoped to
+just this repo. A git failure (no changes, network error, auth failure)
+never blocks the Discord post -- the doc's local copy on the VM is already
+updated either way, and the alert notes the git outcome so a silent drift
+between the VM's file and the repo doesn't go unnoticed.
 """
 
 from __future__ import annotations
@@ -117,8 +120,13 @@ def run(ctx) -> None:
 
     readiness = _format_readiness(ctx, entries, now_et)
 
-    appended = _append_to_doc(_doc_path(ctx), now_et.date().isoformat(), content + "\n\n" + readiness)
-    doc_note = "" if appended else " (doc file not found locally -- NOT appended, see RUNBOOK.md)"
+    doc_path = _doc_path(ctx)
+    appended = _append_to_doc(doc_path, now_et.date().isoformat(), content + "\n\n" + readiness)
+    if not appended:
+        doc_note = " (doc file not found locally -- NOT appended, see RUNBOOK.md)"
+    else:
+        git_error = _git_commit_and_push(ctx, doc_path, now_et.date().isoformat())
+        doc_note = f" (appended locally, but git commit/push failed: {git_error} -- see RUNBOOK.md)" if git_error else ""
 
     ctx.alerter.alert(NAME, Severity.INFO, f"[trade_validation]{doc_note}\n{content}\n\n{readiness}", force=True)
 
@@ -165,6 +173,38 @@ def _format_readiness(ctx, entries: list[dict], now_et) -> str:
     lines.append(f"This week: {'CLEAN' if clean else 'NOT CLEAN'} ({detail})")
     lines.append(f"Consecutive clean weeks: {streak}")
     return "\n".join(lines)
+
+
+def _git_commit_and_push(ctx, doc_path: Path, date_label: str) -> str | None:
+    """Commits and pushes just this one file. Returns None on success (or
+    when there's genuinely nothing to commit), otherwise a short error
+    string -- never raises, since a git/network failure here must not
+    block the Discord post."""
+    cwd = str(doc_path.resolve().parent)
+    timeout = _timeout(ctx)
+    try:
+        unchanged = subprocess.run(
+            ["git", "diff", "--quiet", "--", str(doc_path)], cwd=cwd, timeout=timeout,
+        ).returncode == 0
+        if unchanged:
+            return None
+        subprocess.run(
+            ["git", "add", "--", str(doc_path)], cwd=cwd, timeout=timeout,
+            check=True, capture_output=True, text=True,
+        )
+        subprocess.run(
+            ["git", "commit", "-m", f"trade_validation: append {date_label} snapshot [automated]"],
+            cwd=cwd, timeout=timeout, check=True, capture_output=True, text=True,
+        )
+        subprocess.run(["git", "push"], cwd=cwd, timeout=timeout, check=True, capture_output=True, text=True)
+    except subprocess.TimeoutExpired:
+        return "git operation timed out"
+    except subprocess.CalledProcessError as exc:
+        stderr_tail = (exc.stderr or "")[-300:]
+        return f"`git {exc.cmd[1]}` failed: {stderr_tail}".strip()
+    except Exception as exc:
+        return str(exc)
+    return None
 
 
 def _append_to_doc(doc_path: Path, date_label: str, content: str) -> bool:
