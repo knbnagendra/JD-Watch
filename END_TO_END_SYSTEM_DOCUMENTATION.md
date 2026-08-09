@@ -1,6 +1,6 @@
 # JD Trading Platform — End-to-End System Documentation
 
-**Last verified:** 2026-08-06, against `main`/`prod` HEAD of all three repos (JD-Signal, JD-Relay, JD-Watch), all branches confirmed in sync. Every claim in this document was checked directly against source code on this date, not recalled from memory — file:line references are included for anything you may be asked to prove live.
+**Last verified:** 2026-08-09, against `main`/`prod` HEAD of all three repos (JD-Signal, JD-Relay, JD-Watch), all branches confirmed in sync. Every claim in this document was checked directly against source code on this date, not recalled from memory — file:line references are included for anything you may be asked to prove live. (Originally published 2026-08-06; updated 2026-08-09 to cover two newly-shipped JD-Watch features — see [§5.4](#54-trade-performance-validation) and [§5.5](#55-bug-tracker).)
 
 ---
 
@@ -31,11 +31,11 @@ The JD Trading Platform is a three-repo, fully automated options/equities tradin
 |---|---|---|
 | **JD-Signal** | Signal generation | Watches live market data (option chains, GEX/DEX, price/volume), classifies market regime, and decides *when a trade setup exists* — 9 distinct trading products plus 4 narrative/commentary products, across US and India. |
 | **JD-Relay** | Execution & risk | Receives signal alerts over HTTP, independently re-validates every one against real-time broker data through a ~15-step risk pipeline, sizes the position, and — only if every gate passes — places the real order with a real broker, then manages its full lifecycle (fills, protective stops, exits, reconciliation). |
-| **JD-Watch** | Ops monitoring | A third, independent process that watches JD-Relay and JD-Signal from the outside — the "who watches the watchmen" layer — catching failure modes neither of the other two can see about themselves (e.g., "is every open position's stop order still actually alive at the broker, right now"). |
+| **JD-Watch** | Ops monitoring | A third, independent process that watches JD-Relay and JD-Signal from the outside — the "who watches the watchmen" layer — catching failure modes neither of the other two can see about themselves (e.g., "is every open position's stop order still actually alive at the broker, right now"). Also now tracks whether real trading performance data is statistically trustworthy yet, and maintains a deliberate log of real bug fixes over time. |
 
 **Why three separate processes, not one monolith:** each is designed to survive the others crashing. A crashed JD-Watch cannot stop JD-Relay from protecting open positions; a crashed JD-Signal cannot corrupt JD-Relay's already-placed orders; a hung JD-Relay broker call cannot block JD-Watch's kill-switch monitoring. This is a deliberate architectural choice, not an accident of how the codebases grew — see [§2](#2-system-architecture).
 
-**Current live-money footprint:** 3 accounts trade real money today — Tradier `live`, Alpaca `alpaca_live`, and Schwab `schwab_live` — plus 2 paper/sandbox accounts (`sandbox`, `alpaca_sandbox`) for pre-production validation. See [§10](#10-current-operational-status) for their exact current state, pulled live for this document.
+**Current live-money footprint:** 3 accounts trade real money today — Tradier `tradier_live`, Alpaca `alpaca_live`, and Schwab `schwab_live` — plus 2 paper/sandbox accounts (`tradier_sandbox`, `alpaca_sandbox`) for pre-production validation. See [§10](#10-current-operational-status) for their exact current state, pulled live for this document.
 
 ---
 
@@ -66,7 +66,7 @@ flowchart TB
     subgraph Watch["JD-Watch (ops monitoring)"]
         direction TB
         Checks["4 Checks<br/>stop_coverage · flat_by_close<br/>killswitch_dryfire · ops_monitor_runner"]
-        Reports["5 Scheduled Reports<br/>premarket · mid-session · EOD<br/>trade P&L · weekly digest"]
+        Reports["6 Scheduled Reports<br/>premarket · mid-session · EOD<br/>trade P&L · weekly digest · trade validation"]
     end
 
     Discord1 -- "webhook: alert" --> Webhook
@@ -156,7 +156,7 @@ Two separate mechanisms prevent noise and preserve evidence, without ever touchi
 
 ## 4. Component Deep Dive: JD-Relay
 
-**What it is:** a FastAPI service plus two background async loops, running one fully independent, isolated "pipeline" per trading account — own broker connection, own circuit breaker, own database, own position tracking, own lock. Today there are 5 such pipelines: `sandbox`, `live` (both Tradier), `alpaca_sandbox`, `alpaca_live` (both Alpaca), `schwab_live` (Schwab).
+**What it is:** a FastAPI service plus two background async loops, running one fully independent, isolated "pipeline" per trading account — own broker connection, own circuit breaker, own database, own position tracking, own lock. Today there are 5 such pipelines: `tradier_sandbox`, `tradier_live` (both Tradier), `alpaca_sandbox`, `alpaca_live` (both Alpaca), `schwab_live` (Schwab).
 
 ### 4.1 The Risk Evaluation Pipeline
 
@@ -204,7 +204,7 @@ Once an order is accepted, JD-Relay tracks it through its full life: fill confir
 
 | Broker | Real-money status today | Integration |
 |---|---|---|
-| **Tradier** | Live (`live` account) | Plain REST API |
+| **Tradier** | Live (`tradier_live` account) | Plain REST API |
 | **Alpaca** | Live (`alpaca_live` account) | Plain REST API |
 | **Schwab** | Live (`schwab_live` account, one product only: SPX MOC Lotto) | REST via a community SDK, requires a one-time manual OAuth step |
 | **Robinhood** | Not enabled — feature-flagged off | A fundamentally different protocol (MCP/JSON-RPC, not REST); the code itself documents its own tool names as unverified placeholders pending real validation, and there is **no sandbox/paper environment on Robinhood at all** — the very first real order this adapter would ever place is against real money with zero rehearsal |
@@ -234,15 +234,34 @@ JD-Relay posts to Discord for fills, rejections, incidents, circuit-breaker even
 
 Every check follows the same rule, with no exception anywhere in this codebase: **it can only pause new entries on one specific account. It never flattens a position, and it never resumes anything on its own.** Every incident ends in a documented human decision.
 
-### 5.2 The Five Scheduled Reports
+### 5.2 The Scheduled Reports
 
-A premarket go/no-go check (08:45 ET), an hourly mid-session status snapshot during market hours, an end-of-day summary (16:15 ET), a P&L report for the day's closed trades (16:16 ET), and a Friday weekly digest (16:20 ET) — all informational, never trigger any automatic action, and deliberately bypass the normal alert-deduplication logic since a scheduled report should always post regardless of whether an identical-looking one posted yesterday.
+A premarket go/no-go check (08:45 ET), an hourly mid-session status snapshot during market hours, an end-of-day summary (16:15 ET), a P&L report for the day's closed trades (16:16 ET), a Friday weekly digest (16:20 ET), and a Friday trade-performance validation report (16:25 ET, see [§5.4](#54-trade-performance-validation)) — all informational, never trigger any automatic action, and deliberately bypass the normal alert-deduplication logic since a scheduled report should always post regardless of whether an identical-looking one posted yesterday.
 
 A standing rule enforced in every one of these: **halt status for every account is stated explicitly by name every single reporting cycle** — never an implicit "everything's fine" summary that could quietly omit a halted account. This rule exists specifically because of a real near-miss where a rolled-up summary once obscured exactly that.
 
 ### 5.3 Design Philosophy
 
 JD-Watch deliberately reads JD-Signal's database file directly (read-only) rather than requiring a new API, and talks to JD-Relay only through JD-Relay's existing operational HTTP endpoints — the same ones a human operator would use, no special back door. Every one of its checks runs sequentially, and one check's exception can never affect or block any other check, or the scheduler itself.
+
+### 5.4 Trade Performance Validation
+
+A Friday-only report answering a specific question: **is there enough real trading data yet to trust any performance number this system reports, and is that data actually clean?** It shells out to JD-Relay's own `trade_report.py --validation-summary` (both a human-readable table and a `--json` machine-readable form) over the trailing 7 days, then computes and tracks two automated readiness signals rather than leaving "is this trustworthy" as an unverified judgment call:
+
+- **Sample size** — per live account, per product, closed-trade count against a floor (default 30) below which a win-rate or P&L number is mostly noise. Each product/account combination is marked "READY" only once it clears that floor.
+- **Consecutive clean weeks** — a week counts as *clean* only if zero exits that week were recorded as **approximate** (an approximate exit price means the broker's real fill price couldn't be confirmed — exactly the signal that caught a real Alpaca bug where exit fills were being silently recorded as approximate 100% of the time due to a broker-specific field-name mismatch, found 2026-08-08) **and** zero new CRITICAL JD-Watch incidents opened that week. This streak is stored append-only (never edited in place), so a "N consecutive clean weeks" claim is always backed by real history, not a counter that could silently drift from what actually happened.
+
+Every Friday's snapshot is also appended (never edited) to a durable, version-controlled `TRADE_PERFORMANCE_VALIDATION.md` in the JD-Relay repo — the report commits and pushes that one file itself, scoped to just that path (never a blanket `git add`), so the record survives independently of the VM's local disk. A git failure there never blocks the Discord post; the alert itself notes if the git step failed, so a silent drift between the doc and the VM's copy can't go unnoticed.
+
+**Why this exists:** distinguishing "this system looks profitable" from "this system has traded enough, cleanly enough, to say that with any confidence" is exactly the kind of claim that's easy to get wrong by eyeballing a P&L number too early. This makes that judgment call structural instead of informal.
+
+### 5.5 Bug Tracker
+
+A small, deliberately manual mechanism for keeping an honest record of real bug fixes over time, across all three repos: `python -m watch.log_bug --repo <repo> --description "<what was fixed>" --commit <sha>`. Each invocation is one human decision, one row, appended to a local table — **never inferred automatically** from commit messages or from a JD-Watch incident being resolved, because neither reliably distinguishes "a real bug" from routine work (a commit message can describe anything; an incident can resolve itself without anyone having fixed the underlying cause).
+
+Two places surface this record:
+- The weekly digest reports **days since the last logged bug fix** and lists every fix logged in the trailing 7 days.
+- The premarket report shows, for every real trading product (Fuse, Sentinel, Swing, Beacon, SPX MOC Lotto), whether it has **ever closed a real live trade** — "cycle complete (last real close ..., TICKER on ACCOUNT)" once it has, "NOT YET completed live" until it does — read directly from JD-Relay's own per-account journal databases (`jd_relay_<account>.db`), the same read-only-sibling-file pattern used for JD-Signal's regime data ([§5.3](#53-design-philosophy)). This is a slow-moving milestone tracker for which products have actually proven themselves with real capital, distinct from having merely passed paper/sandbox validation.
 
 ---
 
@@ -304,36 +323,38 @@ This means a single incoming signal alert can simultaneously be **approved for o
 
 ## 9. Reliability, Testing & Observability
 
-As of this document's verification date (2026-08-06), after a full-codebase regression pass across all three repos:
+As of this document's last update (2026-08-09), after a full-codebase regression pass across all three repos:
 
 | Repo | Tests | Result | Line coverage |
 |---|---|---|---|
 | **JD-Signal** | (full suite) | All passing | 95% |
-| **JD-Relay** | 852 tests, 43 test files | All passing | 96% |
-| **JD-Watch** | 131 tests, 19 test files | All passing (on committed code) | 92% |
+| **JD-Relay** | 868 tests, 43 test files | All passing | 96% |
+| **JD-Watch** | 174 tests, 21 test files | All passing | 92%+ |
 
 Every real bug fix in this system's history has shipped with a regression test confirmed to fail against the pre-fix code and pass against the post-fix code — this is a standing, enforced rule, not aspirational. Two real, currently-live-relevant findings from that regression pass, both already fixed and deployed as of this writing:
 
 1. **JD-Relay's `main` and `prod` git branches had drifted apart** — `prod` (what's actually deployed) had accumulated roughly 20 commits `main` never received, including real functionality (a live product, a bug fix for a background-process crash, an accounting fix for one account's personal-holdings interference with its circuit breaker). Reconciled: the two branches are now fully in sync, with `prod` a clean fast-forward of `main`.
 2. **A third-party dependency (`mcp`, used only by the currently-disabled Robinhood integration) shipped a breaking API change** that had been silently failing to import for an unknown period, which in turn meant **117 tests — including the actual process-entrypoint test suite — had been silently excluded from every test run** rather than fixed. Root-caused and fixed; all 117 now run and pass. The live production server's dependency environment was also found to be several versions further out of date than the pinned requirement, upgraded and verified with a full test pass on the actual production environment before restarting the live service.
 
-A separate, real, currently-open finding surfaced during this same pass: JD-Relay's general-purpose Discord ops webhook (`DISCORD_NOTIFY_WEBHOOK_URL`, distinct from the trades channel) has been returning "Unknown Webhook" (HTTP 404) for some time — meaning heartbeat and non-rejection incident notifications through that specific channel had been silently failing. This was only made visible today by a same-day fix (loud logging on webhook-post failures); the remaining fix (recreating the webhook in Discord and updating the deployed credential) requires a manual action outside code and has not yet been completed as of this document.
+A separate finding from that same pass has since been resolved: JD-Relay's general-purpose Discord ops webhook (`DISCORD_NOTIFY_WEBHOOK_URL`, distinct from the trades channel) had been returning "Unknown Webhook" (HTTP 404) for some time, silently swallowing heartbeat and non-rejection incident notifications. Loud logging on webhook-post failures made it visible; the credential has since been rotated and delivery confirmed live (zero failures across a 30-minute window that should have included multiple heartbeat cycles across all 5 accounts).
+
+Also since this document's original writing: **JD-Relay's Alpaca exit fills were being recorded as approximate 100% of the time**, understating real slippage in every recorded Alpaca P&L figure — found by reading live `alpaca_sandbox` trade data (11/11 non-EOD-flatten exits flagged approximate, versus a healthy mix on Tradier's sandbox). Root cause: the fill-price lookup only ever checked Tradier's field names; Alpaca's real fill data uses a different field name entirely, so every Alpaca exit silently fell back to the intended stop/target price instead of the broker's actual reported fill. Fixed, with both check sites now sharing one constant so they can't drift apart again — this is also the exact signal Trade Performance Validation ([§5.4](#54-trade-performance-validation)) tracks weekly (an approximate-exit rate that should be at or near zero) specifically so a regression like this doesn't go unnoticed a second time.
 
 ---
 
 ## 10. Current Operational Status
 
-Pulled live on 2026-08-06 (halt status changes continuously — do not treat this table as current for a demo more than a few hours after this document was generated):
+Pulled live on 2026-08-09 (halt status changes continuously — do not treat this table as current for a demo more than a few hours after this document was generated). Account names were renamed since the original writing (`sandbox`→`tradier_sandbox`, `live`→`tradier_live`) for naming consistency with the other brokers — order/trade history and halt state carried over intact through the rename:
 
 | Account | Broker | Kind | Status |
 |---|---|---|---|
-| `sandbox` | Tradier | Paper | Not halted |
-| `live` | Tradier | **Live** | **Halted** — daily circuit breaker (−3.33% ≤ −3.00% threshold) |
+| `tradier_sandbox` | Tradier | Paper | Not halted |
+| `tradier_live` | Tradier | **Live** | Not halted |
 | `alpaca_sandbox` | Alpaca | Paper | Not halted |
-| `alpaca_live` | Alpaca | **Live** | **Halted** — weekly drawdown (−6.13% ≤ −6.00%), requires manual re-arm |
-| `schwab_live` | Schwab | **Live** | **Halted** — weekly drawdown (−7.10% ≤ −6.00%), requires manual re-arm |
+| `alpaca_live` | Alpaca | **Live** | **Halted** — weekly drawdown (−11.23% ≤ −6.00%), requires manual re-arm. Also carries a manually-placed personal SPY calendar spread the system doesn't recognize as its own (confirmed intentional) — blocks new SPY alerts on this account specifically until closed or manually cleared; does not affect the circuit-breaker math, which already excludes untracked positions' value. |
+| `schwab_live` | Schwab | **Live** | Not halted. Carries 17 untracked personal holdings (a known, accepted pattern for this shared account — see [§8](#8-multi-account--multi-broker-model)) |
 
-All three live accounts are currently halted for new entries — existing open positions, if any, remain fully protected by their broker-side stop orders regardless. `live` will clear automatically at the next daily session reset; `alpaca_live` and `schwab_live` require a deliberate human review and manual re-arm.
+`alpaca_live` is the one account currently halted for new entries — its existing open positions, if any, remain fully protected by their broker-side stop orders regardless, and require a deliberate human review and manual re-arm to resume.
 
 ---
 
@@ -350,7 +371,6 @@ Presented directly and without spin — these are the things a sharp technical q
 - **A position-sizing "TWAP" flag exists in the code but does not actually split orders over time** — it's a liquidity-driven size *reduction* only; there is no time-sliced execution mechanism anywhere in this system today, despite the field's name.
 - **US market-holiday awareness is only populated through 2026** — the calendar used by JD-Watch's scheduling needs a manual annual update; it does not automatically detect and warn about a missing future year.
 - **SPX MOC Lotto's documentation and its actual live wiring have partially diverged** — the module's own comments describe it as deliberately alert-only, while its actual deployed configuration shows it live-trading through the Schwab account. This is worth confirming the current intended status of directly with the team before stating either way with confidence.
-- **The Discord ops webhook issue described in [§9](#9-reliability-testing--observability)** — a specific notification channel has been silently failing; the underlying credential has not yet been rotated as of this writing.
 
 None of these represent hidden risk to capital beyond what's already described in [§7](#7-risk--safety-architecture) and [§10](#10-current-operational-status) — they are scope/completeness gaps in less-mature or explicitly-disabled parts of the system, not silent failures in the parts actively trading real money today.
 
@@ -374,7 +394,13 @@ New entries stop being accepted for that one account. Nothing already open is to
 No — deliberately not. Each account's risk state, circuit breaker, and position tracking are fully independent. This is a direct fix for a real incident where shared state let one account's condition falsely trip another's circuit breaker.
 
 **Q: How much of this is actually tested?**
-852 tests in the execution/risk engine (96% line coverage), 131 in the ops-monitoring layer (92%), and a comparably sized suite in the signal-generation layer (95% coverage) — all passing as of this document. Every historical bug fix in this codebase's history shipped with a regression test proven to fail before the fix and pass after — this is an enforced practice, not a one-time cleanup.
+868 tests in the execution/risk engine (96% line coverage), 174 in the ops-monitoring layer (92%+), and a comparably sized suite in the signal-generation layer (95% coverage) — all passing as of this document. Every historical bug fix in this codebase's history shipped with a regression test proven to fail before the fix and pass after — this is an enforced practice, not a one-time cleanup.
+
+**Q: How do you know when trading performance data is trustworthy enough to show anyone?**
+That's a tracked, structural signal, not a judgment call — see [§5.4](#54-trade-performance-validation). A per-product/account sample-size floor (default 30 closed trades) gates whether a win-rate number means anything yet, and a "consecutive clean weeks" streak (zero approximate exits, zero new critical incidents) is tracked append-only so the claim is always backed by real history.
+
+**Q: How do you know a product has actually been proven with real money, not just paper-tested?**
+Tracked explicitly per product in the premarket report — see [§5.5](#55-bug-tracker). A product shows "NOT YET completed live" until it has closed at least one real trade on a live account, read directly from JD-Relay's own journal, not inferred from configuration.
 
 **Q: Is this fully automated, or does someone watch it?**
 Fully automated for signal generation, risk evaluation, order execution, and position management — no human clicks "place this order." Human involvement is limited to: setting the initial risk configuration, reviewing and manually clearing circuit-breaker halts, and responding to Discord alerts when something needs a judgment call the system deliberately won't make on its own (see [§7.2](#72-the-never-resume-never-flatten-automatically-rule)).
