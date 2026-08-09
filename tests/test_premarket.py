@@ -103,3 +103,53 @@ def test_config_change_noted_but_not_a_nogo(ctx, monkeypatch, tmp_path):
     call = ctx.alerter.calls[-1]
     assert "Overall: GO" in call.content  # a config change alone doesn't block
     assert "Config changed" in call.content
+
+
+def _make_jd_relay_journal(tmp_path, account, product, ticker, closed_at):
+    import sqlite3
+    db_path = tmp_path / f"jd_relay_{account}.db"
+    conn = sqlite3.connect(db_path)
+    conn.executescript(
+        "CREATE TABLE alerts (alert_id TEXT PRIMARY KEY, received_at TEXT NOT NULL, payload_json TEXT NOT NULL);"
+        "CREATE TABLE closed_trades (id INTEGER PRIMARY KEY AUTOINCREMENT, alert_id TEXT NOT NULL, "
+        "ticker TEXT NOT NULL, exit_reason TEXT NOT NULL, pnl_dollars REAL NOT NULL, closed_at TEXT NOT NULL);"
+    )
+    conn.execute("INSERT INTO alerts VALUES ('a1', ?, ?)", (closed_at, f'{{"product": "{product}"}}'))
+    conn.execute(
+        "INSERT INTO closed_trades (alert_id, ticker, exit_reason, pnl_dollars, closed_at) "
+        "VALUES ('a1', ?, 'target', 10.0, ?)",
+        (ticker, closed_at),
+    )
+    conn.commit()
+    conn.close()
+
+
+def test_product_cycle_status_unavailable_when_repo_path_not_configured(ctx, monkeypatch):
+    ctx.relay.get_status = lambda: healthy_status()
+    run_at(ctx, monkeypatch)
+    call = ctx.alerter.calls[0]
+    assert "unavailable (jd_relay_repo_path not configured" in call.content
+
+
+def test_product_cycle_status_shows_complete_when_closed_trade_exists(ctx, monkeypatch, tmp_path):
+    ctx.relay.get_status = lambda: healthy_status(accounts=("live",))
+    ctx.settings.jd_relay_repo_path = str(tmp_path)
+    _make_jd_relay_journal(tmp_path, "live", "fuse", "SPY", "2026-07-25T10:00:00+00:00")
+
+    run_at(ctx, monkeypatch)
+
+    content = ctx.alerter.calls[0].content
+    assert "fuse: cycle complete (last real close 2026-07-25T10:00:00+00:00, SPY on live)" in content
+    assert "sentinel: NOT YET completed live" in content
+
+
+def test_product_cycle_status_all_not_yet_when_nothing_closed(ctx, monkeypatch, tmp_path):
+    ctx.relay.get_status = lambda: healthy_status(accounts=("live",))
+    ctx.settings.jd_relay_repo_path = str(tmp_path)
+    (tmp_path / "jd_relay_live.db").touch()  # exists but empty -- no tables
+
+    run_at(ctx, monkeypatch)
+
+    content = ctx.alerter.calls[0].content
+    for product in ("fuse", "sentinel", "swing", "beacon", "spx_moc_lotto"):
+        assert f"{product}: NOT YET completed live" in content

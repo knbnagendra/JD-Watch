@@ -115,6 +115,50 @@ def test_config_hash_roundtrip(db):
     assert store.get_config_hash(db, "rules.yaml") == "def456"
 
 
+def test_days_since_last_bug_none_when_nothing_logged(db):
+    assert store.days_since_last_bug(db) is None
+
+
+def test_days_since_last_bug_zero_for_bug_logged_today(db):
+    store.record_bug(db, "jd-relay", "some fix", "abc123")
+    assert store.days_since_last_bug(db) == 0
+
+
+def test_days_since_last_bug_uses_most_recent_entry(db):
+    from datetime import datetime, timedelta, timezone
+    old_id = store.record_bug(db, "jd-relay", "old fix")
+    db.execute(
+        "UPDATE bug_log SET logged_at = ? WHERE id = ?",
+        ((datetime.now(timezone.utc) - timedelta(days=10)).isoformat(), old_id),
+    )
+    db.commit()
+    store.record_bug(db, "jd-relay", "recent fix")
+
+    assert store.days_since_last_bug(db) == 0
+
+
+def test_get_bugs_since_excludes_older(db):
+    from datetime import datetime, timedelta, timezone
+    old_id = store.record_bug(db, "jd-relay", "old fix")
+    db.execute(
+        "UPDATE bug_log SET logged_at = ? WHERE id = ?",
+        ((datetime.now(timezone.utc) - timedelta(days=10)).isoformat(), old_id),
+    )
+    db.commit()
+    store.record_bug(db, "jd-relay", "recent fix")
+
+    since = datetime.now(timezone.utc) - timedelta(days=1)
+    rows = store.get_bugs_since(db, since)
+
+    assert [r["description"] for r in rows] == ["recent fix"]
+
+
+def test_record_bug_defaults_commit_sha_to_empty_string(db):
+    store.record_bug(db, "jd-watch", "no commit yet")
+    row = db.execute("SELECT commit_sha FROM bug_log").fetchone()
+    assert row["commit_sha"] == ""
+
+
 def test_validation_streak_zero_when_nothing_recorded(db):
     assert store.get_validation_streak(db) == 0
 

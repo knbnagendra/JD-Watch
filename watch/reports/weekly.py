@@ -57,4 +57,14 @@ def run(ctx) -> None:
     else:
         lines.append("Incidents this week: none")
 
+    since_bug = store.days_since_last_bug(ctx.db)
+    lines.append("")
+    lines.append(f"Days since last logged bug fix: {since_bug if since_bug is not None else 'none logged yet'}")
+
+    bugs = store.get_bugs_since(ctx.db, since_utc)
+    if bugs:
+        lines.append("Bugs fixed this week:")
+        for bug in bugs:
+            lines.append(f"- [{bug['repo']}] {bug['description']}")
+
     ctx.alerter.alert(NAME, Severity.INFO, "\n".join(lines), force=True)

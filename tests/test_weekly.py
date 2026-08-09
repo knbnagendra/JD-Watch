@@ -66,3 +66,40 @@ def test_incident_outside_week_excluded(ctx, monkeypatch):
     run_at(ctx, monkeypatch, date=(2026, 7, 31))
 
     assert "Incidents this week: none" in ctx.alerter.calls[0].content
+
+
+def test_days_since_bug_none_logged_yet(ctx, monkeypatch):
+    monkeypatch.setattr(subprocess, "run", fake_subprocess_run)
+    run_at(ctx, monkeypatch, date=(2026, 7, 31))
+    assert "Days since last logged bug fix: none logged yet" in ctx.alerter.calls[0].content
+
+
+def test_days_since_bug_reports_count(ctx, monkeypatch):
+    monkeypatch.setattr(subprocess, "run", fake_subprocess_run)
+    store.record_bug(ctx.db, "jd-relay", "some fix")
+
+    run_at(ctx, monkeypatch, date=(2026, 7, 31))
+
+    assert "Days since last logged bug fix: 0" in ctx.alerter.calls[0].content
+
+
+def test_bugs_this_week_listed(ctx, monkeypatch):
+    monkeypatch.setattr(subprocess, "run", fake_subprocess_run)
+    store.record_bug(ctx.db, "jd-relay", "circuit breaker scoping fix")
+
+    run_at(ctx, monkeypatch, date=(2026, 7, 31))
+
+    content = ctx.alerter.calls[0].content
+    assert "Bugs fixed this week:" in content
+    assert "[jd-relay] circuit breaker scoping fix" in content
+
+
+def test_bugs_outside_week_not_listed(ctx, monkeypatch):
+    monkeypatch.setattr(subprocess, "run", fake_subprocess_run)
+    bug_id = store.record_bug(ctx.db, "jd-relay", "an old fix")
+    ctx.db.execute("UPDATE bug_log SET logged_at = '2026-07-01T10:00:00+00:00' WHERE id = ?", (bug_id,))
+    ctx.db.commit()
+
+    run_at(ctx, monkeypatch, date=(2026, 7, 31))
+
+    assert "Bugs fixed this week:" not in ctx.alerter.calls[0].content

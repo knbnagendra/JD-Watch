@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 
-from watch import market_hours, store
+from watch import jd_relay_journal_db, market_hours, store
 from watch.checks import killswitch_dryfire
 from watch.reports import common
 from watch.severity import Severity
@@ -20,6 +20,12 @@ from watch.severity import Severity
 log = logging.getLogger("watch.reports.premarket")
 
 NAME = "premarket_report"
+
+# Every product that can trade real money live today -- see JD-Relay's
+# AccountConfig.products literal. Not read from config: this is "has this
+# product EVER closed a real trade," a slow-moving milestone list, not a
+# per-account routing table.
+_PRODUCTS = ("fuse", "sentinel", "swing", "beacon", "spx_moc_lotto")
 
 
 def _threshold(ctx, key: str, default: float) -> float:
@@ -82,6 +88,25 @@ def run(ctx) -> None:
                 lines.append(f"- {name}: not halted")
     else:
         lines.append("- unavailable (JD-Relay unreachable)")
+
+    lines.append("")
+    lines.append("Product live-cycle status:")
+    repo_path = ctx.settings.jd_relay_repo_path
+    if not repo_path:
+        lines.append("- unavailable (jd_relay_repo_path not configured -- see .env.example)")
+    else:
+        latest = jd_relay_journal_db.get_latest_closed_trade_by_product_all_accounts(
+            repo_path, list(accounts.keys()),
+        )
+        for product in _PRODUCTS:
+            info = latest.get(product)
+            if info:
+                lines.append(
+                    f"- {product}: cycle complete (last real close {info['closed_at']}, "
+                    f"{info['ticker']} on {info['account']})"
+                )
+            else:
+                lines.append(f"- {product}: NOT YET completed live")
 
     ctx.alerter.alert(
         NAME, Severity.INFO if overall_go else Severity.WARN, "\n".join(lines), force=True,

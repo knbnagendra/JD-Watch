@@ -73,6 +73,20 @@ CREATE TABLE IF NOT EXISTS validation_weeks (
     streak_after INTEGER NOT NULL,
     detail TEXT NOT NULL DEFAULT ''
 );
+
+-- Manually-logged real bug fixes (log_bug.py CLI, one row per fix, across
+-- any of the three repos) -- append-only, so "days since last bug fix" and
+-- "bugs fixed this week" (weekly_digest) are derived from a real record a
+-- human deliberately made, not inferred from commit messages or incident
+-- resolution (neither of which reliably distinguishes "a real bug" from
+-- routine work).
+CREATE TABLE IF NOT EXISTS bug_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    repo TEXT NOT NULL,
+    description TEXT NOT NULL,
+    commit_sha TEXT NOT NULL DEFAULT '',
+    logged_at TEXT NOT NULL
+);
 """
 
 
@@ -195,3 +209,26 @@ def record_validation_week(conn: sqlite3.Connection, week_ending: str, clean: bo
     )
     conn.commit()
     return streak
+
+
+def record_bug(conn: sqlite3.Connection, repo: str, description: str, commit_sha: str = "") -> int:
+    cur = conn.execute(
+        "INSERT INTO bug_log (repo, description, commit_sha, logged_at) VALUES (?, ?, ?, ?)",
+        (repo, description, commit_sha, _now_iso()),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def days_since_last_bug(conn: sqlite3.Connection) -> int | None:
+    row = conn.execute("SELECT logged_at FROM bug_log ORDER BY logged_at DESC LIMIT 1").fetchone()
+    if row is None:
+        return None
+    logged_at = datetime.fromisoformat(row["logged_at"])
+    return (datetime.now(timezone.utc) - logged_at).days
+
+
+def get_bugs_since(conn: sqlite3.Connection, since: datetime) -> list[sqlite3.Row]:
+    return conn.execute(
+        "SELECT * FROM bug_log WHERE logged_at >= ? ORDER BY logged_at", (since.isoformat(),),
+    ).fetchall()
