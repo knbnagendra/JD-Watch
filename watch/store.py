@@ -87,6 +87,21 @@ CREATE TABLE IF NOT EXISTS bug_log (
     commit_sha TEXT NOT NULL DEFAULT '',
     logged_at TEXT NOT NULL
 );
+
+-- One row per registered check, tracking engine.py's CheckSpec._last_run_date/
+-- _last_run_ts across restarts. Confirmed live 2026-08-10: those fields were
+-- in-memory-only, so any process restart landing after a daily_at_et check's
+-- scheduled time (e.g. a deploy in the afternoon) made CheckSpec.due() see a
+-- fresh None _last_run_date and re-fire that same check again the same day --
+-- harmless for killswitch_dryfire (sandbox-only halt/rearm) but would
+-- double-count a trade_validation week (corrupting its consecutive-clean-
+-- weeks streak) or double-post/double-commit any other daily report if a
+-- restart ever lands after its scheduled time.
+CREATE TABLE IF NOT EXISTS check_schedule (
+    check_name TEXT PRIMARY KEY,
+    last_run_date TEXT,
+    last_run_ts REAL NOT NULL DEFAULT 0
+);
 """
 
 
@@ -232,3 +247,21 @@ def get_bugs_since(conn: sqlite3.Connection, since: datetime) -> list[sqlite3.Ro
     return conn.execute(
         "SELECT * FROM bug_log WHERE logged_at >= ? ORDER BY logged_at", (since.isoformat(),),
     ).fetchall()
+
+
+def get_check_schedule(conn: sqlite3.Connection, check_name: str) -> tuple[str | None, float]:
+    row = conn.execute(
+        "SELECT last_run_date, last_run_ts FROM check_schedule WHERE check_name = ?", (check_name,),
+    ).fetchone()
+    if row is None:
+        return None, 0.0
+    return row["last_run_date"], row["last_run_ts"]
+
+
+def set_check_schedule(conn: sqlite3.Connection, check_name: str, last_run_date: str | None, last_run_ts: float) -> None:
+    conn.execute(
+        "INSERT INTO check_schedule (check_name, last_run_date, last_run_ts) VALUES (?, ?, ?) "
+        "ON CONFLICT(check_name) DO UPDATE SET last_run_date = excluded.last_run_date, last_run_ts = excluded.last_run_ts",
+        (check_name, last_run_date, last_run_ts),
+    )
+    conn.commit()

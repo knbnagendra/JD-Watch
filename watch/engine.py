@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Callable
 
-from watch import market_hours
+from watch import market_hours, store
 
 log = logging.getLogger("watch.engine")
 
@@ -52,6 +52,23 @@ class Engine:
         self.ctx = ctx
         self.checks = checks
         self.tick_seconds = tick_seconds
+        self._hydrate_from_store()
+
+    def _hydrate_from_store(self) -> None:
+        """Restores each check's last-ran state from disk so a process
+        restart doesn't forget a daily_at_et check already ran today --
+        see store.py's check_schedule table docstring for the live
+        incident this fixes. No-ops if ctx has no real db (e.g. tests
+        constructing Engine with a bare string/None ctx) -- a report
+        failing to persist its schedule must never look like a check
+        failing to run."""
+        db = getattr(self.ctx, "db", None)
+        if db is None:
+            return
+        for check in self.checks:
+            last_run_date, last_run_ts = store.get_check_schedule(db, check.name)
+            check._last_run_ts = last_run_ts
+            check._last_run_date = date.fromisoformat(last_run_date) if last_run_date else None
 
     async def run_forever(self) -> None:
         while True:
@@ -61,6 +78,7 @@ class Engine:
     async def tick(self) -> None:
         now_ts = time.time()
         now_et_dt = market_hours.now_et()
+        db = getattr(self.ctx, "db", None)
         for check in self.checks:
             if not check.due(now_ts, now_et_dt):
                 continue
@@ -69,3 +87,9 @@ class Engine:
             except Exception:
                 log.exception("check_failed name=%s", check.name)
             check.mark_ran(now_ts, now_et_dt)
+            if db is not None:
+                store.set_check_schedule(
+                    db, check.name,
+                    check._last_run_date.isoformat() if check._last_run_date else None,
+                    check._last_run_ts,
+                )

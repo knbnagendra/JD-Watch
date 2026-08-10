@@ -188,3 +188,31 @@ def test_validation_weeks_history_is_append_only(db):
     assert rows[0]["clean"] == 1
     assert rows[1]["clean"] == 0
     assert rows[1]["detail"] == "2 approx exits found"
+
+
+def test_check_schedule_missing_returns_none_and_zero(db):
+    last_run_date, last_run_ts = store.get_check_schedule(db, "premarket_report")
+    assert last_run_date is None
+    assert last_run_ts == 0.0
+
+
+def test_check_schedule_roundtrip(db):
+    store.set_check_schedule(db, "premarket_report", "2026-08-10", 12345.6)
+    last_run_date, last_run_ts = store.get_check_schedule(db, "premarket_report")
+    assert last_run_date == "2026-08-10"
+    assert last_run_ts == 12345.6
+
+
+def test_check_schedule_update_overwrites_not_duplicates(db):
+    store.set_check_schedule(db, "premarket_report", "2026-08-10", 100.0)
+    store.set_check_schedule(db, "premarket_report", "2026-08-11", 200.0)
+    last_run_date, last_run_ts = store.get_check_schedule(db, "premarket_report")
+    assert last_run_date == "2026-08-11"
+    assert last_run_ts == 200.0
+
+
+def test_check_schedule_independent_per_check_name(db):
+    store.set_check_schedule(db, "premarket_report", "2026-08-10", 100.0)
+    store.set_check_schedule(db, "weekly_digest", "2026-08-07", 50.0)
+    assert store.get_check_schedule(db, "premarket_report") == ("2026-08-10", 100.0)
+    assert store.get_check_schedule(db, "weekly_digest") == ("2026-08-07", 50.0)
