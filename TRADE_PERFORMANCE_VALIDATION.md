@@ -116,6 +116,42 @@ JD-Relay itself writes to on every fill, not a separate analytics copy.
 
 ---
 
+## 2026-08-14
+
+**Trade Performance Validation -- since 2026-08-07T20:25:07.043228+00:00**
+
+| Account | Kind | n | P&L | Win rate | % approx |
+|---|---|---:|---:|---:|---:|
+| tradier_sandbox | paper | 6 | $-82.50 | 0% | 0% |
+| tradier_live | live | 4 | $-21.00 | 50% | 0% |
+| alpaca_sandbox | paper | 4 | $-707.03 | 0% | 50% |
+| alpaca_live | live | 0 | -- | -- | -- |
+| schwab_live | live | 0 | -- | -- | -- |
+
+Per-product breakdown:
+| Account | Product | n | P&L | Win rate | % approx |
+|---|---|---:|---:|---:|---:|
+| tradier_sandbox | sentinel | 4 | $-78.50 | 0% | 0% |
+| tradier_sandbox | fuse | 2 | $-4.00 | 0% | 0% |
+| tradier_live | fuse | 2 | $11.00 | 100% | 0% |
+| tradier_live | sentinel | 2 | $-32.00 | 0% | 0% |
+| alpaca_sandbox | beacon | 2 | $-367.03 | 0% | 100% |
+| alpaca_sandbox | sentinel | 1 | $-315.00 | 0% | 0% |
+| alpaca_sandbox | fuse | 1 | $-25.00 | 0% | 0% |
+
+**Readiness (is this data trustworthy yet?)**
+
+Sample size (floor: 30 closed trades/product before a win-rate number is meaningful):
+- tradier_live/fuse: 2/30 closed trades
+- tradier_live/sentinel: 2/30 closed trades
+- alpaca_live: 0 closed trades
+- schwab_live: 0 closed trades
+
+This week: NOT CLEAN (2/14 approx exits, 1 new CRITICAL incidents)
+Consecutive clean weeks: 0
+
+---
+
 ## Next scheduled check
 
 <!-- New dated sections are inserted automatically directly above this
