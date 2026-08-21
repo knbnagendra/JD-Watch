@@ -152,6 +152,41 @@ Consecutive clean weeks: 0
 
 ---
 
+## 2026-08-21
+
+**Trade Performance Validation -- since 2026-08-14T20:25:02.100541+00:00**
+
+| Account | Kind | n | P&L | Win rate | % approx |
+|---|---|---:|---:|---:|---:|
+| tradier_sandbox | paper | 5 | $-372.50 | 20% | 20% |
+| tradier_live | live | 4 | $200.00 | 50% | 25% |
+| alpaca_sandbox | paper | 7 | $-305.98 | 29% | 71% |
+| alpaca_live | live | 0 | -- | -- | -- |
+
+Per-product breakdown:
+| Account | Product | n | P&L | Win rate | % approx |
+|---|---|---:|---:|---:|---:|
+| tradier_sandbox | fuse | 3 | $-305.00 | 0% | 0% |
+| tradier_sandbox | swing | 1 | $69.00 | 100% | 100% |
+| tradier_sandbox | sentinel | 1 | $-136.50 | 0% | 0% |
+| tradier_live | swing | 2 | $206.00 | 50% | 50% |
+| tradier_live | sentinel | 2 | $-6.00 | 50% | 0% |
+| alpaca_sandbox | beacon | 4 | $-382.98 | 0% | 75% |
+| alpaca_sandbox | fuse | 1 | $30.00 | 100% | 0% |
+| alpaca_sandbox | swing | 2 | $47.00 | 50% | 100% |
+
+**Readiness (is this data trustworthy yet?)**
+
+Sample size (floor: 30 closed trades/product before a win-rate number is meaningful):
+- tradier_live/swing: 2/30 closed trades
+- tradier_live/sentinel: 2/30 closed trades
+- alpaca_live: 0 closed trades
+
+This week: NOT CLEAN (7/16 approx exits, 3 new CRITICAL incidents)
+Consecutive clean weeks: 0
+
+---
+
 ## Next scheduled check
 
 <!-- New dated sections are inserted automatically directly above this
